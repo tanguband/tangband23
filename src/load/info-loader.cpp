@@ -33,15 +33,15 @@ void rd_version_info(void)
     load_xor_byte = w_ptr->sf_extra;
     v_check = 0L;
     x_check = 0L;
-
+/*
     if (is_old_ver) {
-        /* Old savefile will be version 0.0.0.3 */
+        /* Old savefile will be version 0.0.0.3 
         w_ptr->h_ver_extra = rd_byte();
         w_ptr->h_ver_patch = rd_byte();
         w_ptr->h_ver_minor = rd_byte();
         w_ptr->h_ver_major = rd_byte();
     }
-
+*/
     w_ptr->sf_system = rd_u32b();
     w_ptr->sf_when = rd_u32b();
     w_ptr->sf_lives = rd_u16b();
@@ -50,6 +50,7 @@ void rd_version_info(void)
     loading_savefile_version = rd_u32b();
 
     /* h_ver_majorがfake_ver_majorと同じだったころへの対策 */
+/*
     if (loading_savefile_version_is_older_than(10)) {
         constexpr auto fake_ver_plus = 10;
         if (tmp_major - w_ptr->h_ver_major < fake_ver_plus) {
