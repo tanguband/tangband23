@@ -70,9 +70,9 @@ static std::string describe_artifact_mark_ja(const ItemEntity &item, const descr
     }
 
     if (item.is_fixed_artifact()) {
-        return "★";
+        return "★ ";
     } else if (item.art_name) {
-        return "☆";
+        return "☆ ";
     }
 
     return "";
