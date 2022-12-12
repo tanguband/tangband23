@@ -201,7 +201,7 @@ static int decide_random_art_power(const bool a_cursed)
         powers /= 2;
     }
 
-    return powers;
+    return powers *10;
 }
 
 static void invest_powers(PlayerType *player_ptr, ItemEntity *o_ptr, int *powers, bool *has_pval, const bool a_cursed)
