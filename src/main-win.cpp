@@ -1423,7 +1423,7 @@ static void init_windows(void)
     td = &data[0];
     my_td = td;
     td->w = CreateWindowExW(
-        td->dwExStyle, AppName, _(L"変愚蛮怒", td->name), td->dwStyle, td->pos_x, td->pos_y, td->size_wid, td->size_hgt, HWND_DESKTOP, NULL, hInstance, NULL);
+        td->dwExStyle, AppName, _(L"短愚蛮怒", td->name), td->dwStyle, td->pos_x, td->pos_y, td->size_wid, td->size_hgt, HWND_DESKTOP, NULL, hInstance, NULL);
     my_td = NULL;
 
     if (!td->w) {
@@ -2757,7 +2757,7 @@ int WINAPI WinMain(
     hInstance = hInst;
     if (is_already_running()) {
         MessageBoxW(
-            NULL, _(L"変愚蛮怒はすでに起動しています。", L"Hengband is already running."), _(L"エラー！", L"Error"), MB_ICONEXCLAMATION | MB_OK | MB_ICONSTOP);
+            NULL, _(L"短愚蛮怒はすでに起動しています。", L"Hengband is already running."), _(L"エラー！", L"Error"), MB_ICONEXCLAMATION | MB_OK | MB_ICONSTOP);
         return 0;
     }
 
