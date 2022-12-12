@@ -2,9 +2,9 @@
 
 AUTOMAKE_OPTIONS = foreign subdir-objects nostdinc
 
-bin_PROGRAMS = hengband
+bin_PROGRAMS = tangband
 
-hengband_SOURCES = \
+tangband_SOURCES = \
 	action/action-limited.cpp action/action-limited.h \
 	action/activation-execution.cpp action/activation-execution.h \
 	action/movement-execution.cpp action/movement-execution.h \
