@@ -108,7 +108,7 @@ int ItemMagicApplier::calculate_power(const int chance_good, const int chance_gr
         power = 1;
         if (any_bits(this->mode, AM_GREAT) || magik(chance_great)) {
             power = 2;
-            if (any_bits(this->mode, AM_SPECIAL)) {
+            if (any_bits(this->mode, AM_GREAT) || magik(25)) {
                 power = 3;
             }
         }
