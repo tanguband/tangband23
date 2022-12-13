@@ -48,9 +48,9 @@ concptr screen_dump = nullptr;
 #define HTTP_TIMEOUT 30 /*!< デフォルトのタイムアウト時間(秒) / Timeout length (second) */
 
 #ifdef JP
-#define SCORE_PATH "http://mars.kmc.gr.jp/~dis/heng_score/register_score.php" /*!< スコア開示URL */
+#define SCORE_PATH "" /*!< スコア開示URL */
 #else
-#define SCORE_PATH "http://moon.kmc.gr.jp/hengband/hengscore-en/score.cgi" /*!< スコア開示URL */
+#define SCORE_PATH "" /*!< スコア開示URL */
 #endif
 
 /*
@@ -198,7 +198,7 @@ static bool http_post(concptr url, BUF *buf)
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, slist);
 
     char user_agent[64];
-    snprintf(user_agent, sizeof(user_agent), "Hengband %d.%d.%d", H_VER_MAJOR, H_VER_MINOR, H_VER_PATCH);
+    snprintf(user_agent, sizeof(user_agent), "Tangband %d.%d.%d", H_VER_MAJOR, H_VER_MINOR, H_VER_PATCH);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent);
 
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
