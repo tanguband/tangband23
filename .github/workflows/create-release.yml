@@ -32,7 +32,7 @@ jobs:
 
       - name: Restore Nuget Packages
         run: |
-          NuGet restore .\Tangband\Tangband.sln
+          NuGet restore .\Hengband\Tangband.sln
 
       - name: Build Windows Release Package
         run: |
