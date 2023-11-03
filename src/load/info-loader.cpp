@@ -16,34 +16,23 @@
  */
 void rd_version_info(void)
 {
-    auto tmp_major = rd_byte();
-    auto is_old_ver = (10 <= tmp_major) && (tmp_major <= 13);
+    auto savefile_variant_length = rd_byte();
     constexpr auto variant_length = VARIANT_NAME.length();
-    if (tmp_major == variant_length) {
-        strip_bytes(variant_length);
-        load_xor_byte = 0;
-        w_ptr->h_ver_major = rd_byte();
-        w_ptr->h_ver_minor = rd_byte();
-        w_ptr->h_ver_patch = rd_byte();
-        w_ptr->h_ver_extra = rd_byte();
-        strip_bytes(1);
-    } else if (is_old_ver) {
-        strip_bytes(3);
-    } else {
-        throw("Invalid version is detected!");
+    if (savefile_variant_length != variant_length) {
+        throw("Invalid variant is detected!");
     }
+
+    strip_bytes(variant_length);
+    load_xor_byte = 0;
+    w_ptr->h_ver_major = rd_byte();
+    w_ptr->h_ver_minor = rd_byte();
+    w_ptr->h_ver_patch = rd_byte();
+    w_ptr->h_ver_extra = rd_byte();
+    strip_bytes(1);
 
     load_xor_byte = w_ptr->sf_extra;
     v_check = 0L;
     x_check = 0L;
-
-    if (is_old_ver) {
-        /* Old savefile will be version 0.0.0.3 */
-        w_ptr->h_ver_extra = rd_byte();
-        w_ptr->h_ver_patch = rd_byte();
-        w_ptr->h_ver_minor = rd_byte();
-        w_ptr->h_ver_major = rd_byte();
-    }
 
     w_ptr->sf_system = rd_u32b();
     w_ptr->sf_when = rd_u32b();
