@@ -152,8 +152,6 @@ hengband_SOURCES = \
 	core/magic-effects-timeout-reducer.cpp core/magic-effects-timeout-reducer.h \
 	core/object-compressor.cpp core/object-compressor.h \
 	core/player-processor.cpp core/player-processor.h \
-	core/player-redraw-types.h \
-	core/player-update-types.h \
 	core/score-util.cpp core/score-util.h \
 	core/scores.cpp core/scores.h \
 	core/show-file.cpp core/show-file.h \
@@ -194,6 +192,9 @@ hengband_SOURCES = \
 	effect/effect-player-switcher.cpp effect/effect-player-switcher.h \
 	effect/effect-processor.cpp effect/effect-processor.h \
 	effect/effect-characteristics.h \
+	\
+	external-lib/include-json.h \
+	external-lib/json.hpp \
 	\
 	flavor/flag-inscriptions-table.cpp flavor/flag-inscriptions-table.h \
 	flavor/flavor-describer.cpp flavor/flavor-describer.h \
@@ -296,7 +297,6 @@ hengband_SOURCES = \
 	io/exit-panic.cpp io/exit-panic.h \
 	io/files-util.cpp io/files-util.h \
 	io/gf-descriptions.cpp io/gf-descriptions.h \
-	io/inet.cpp io/inet.h \
 	io/input-key-acceptor.cpp io/input-key-acceptor.h \
 	io/input-key-processor.cpp io/input-key-processor.h \
 	io/input-key-requester.cpp io/input-key-requester.h \
@@ -318,6 +318,8 @@ hengband_SOURCES = \
 	io-dump/player-status-dump.cpp io-dump/player-status-dump.h \
 	io-dump/random-art-info-dumper.cpp io-dump/random-art-info-dumper.h \
 	io-dump/special-class-dump.cpp io-dump/special-class-dump.h \
+	\
+	item-info/flavor-initializer.cpp item-info/flavor-initializer.h \
 	\
 	knowledge/knowledge-autopick.cpp knowledge/knowledge-autopick.h \
 	knowledge/knowledge-experiences.cpp knowledge/knowledge-experiences.h \
@@ -395,8 +397,10 @@ hengband_SOURCES = \
 	main/scene-table-monster.cpp main/scene-table-monster.h \
 	main/sound-definitions-table.cpp main/sound-definitions-table.h \
 	main/sound-of-music.cpp main/sound-of-music.h \
-	main/x11-gamma-builder.cpp main/x11-gamma-builder.h \
-	main/x11-type-string.cpp main/x11-type-string.h \
+	\
+	main-unix/unix-user-ids.cpp main-unix/unix-user-ids.h \
+	main-unix/x11-gamma-builder.cpp main-unix/x11-gamma-builder.h \
+	main-unix/x11-type-string.cpp main-unix/x11-type-string.h \
 	\
 	market/arena-info-table.cpp market/arena-info-table.h \
 	market/building-initializer.cpp market/building-initializer.h \
@@ -464,6 +468,7 @@ hengband_SOURCES = \
 	monster/monster-flag-types.h \
 	monster/monster-info.cpp monster/monster-info.h \
 	monster/monster-list.cpp monster/monster-list.h \
+	monster/monster-pain-describer.cpp monster/monster-pain-describer.h \
 	monster/monster-processor.cpp monster/monster-processor.h \
 	monster/monster-processor-util.cpp monster/monster-processor-util.h \
 	monster/monster-timed-effect-types.h \
@@ -510,6 +515,8 @@ hengband_SOURCES = \
 	monster-race/race-ability-flags.h \
 	monster-race/race-ability-mask.cpp monster-race/race-ability-mask.h \
 	monster-race/race-behavior-flags.h \
+	monster-race/race-brightness-flags.h \
+	monster-race/race-brightness-mask.h monster-race/race-brightness-mask.cpp \
 	monster-race/race-drop-flags.h \
 	monster-race/race-feature-flags.h \
 	monster-race/race-feature-mask.cpp monster-race/race-feature-mask.h \
@@ -566,9 +573,13 @@ hengband_SOURCES = \
 	mutation/mutation-processor.cpp mutation/mutation-processor.h \
 	mutation/mutation-techniques.cpp mutation/mutation-techniques.h \
 	\
+	net/curl-easy-session.cpp net/curl-easy-session.h \
+	net/curl-slist.cpp net/curl-slist.h \
+	net/http-client.cpp net/http-client.h \
+	net/report-error.cpp net/report-error.h \
+	\
 	object/item-tester-hooker.cpp object/item-tester-hooker.h \
 	object/object-broken.cpp object/object-broken.h \
-	object/object-flags.cpp object/object-flags.h \
 	object/object-index-list.cpp object/object-index-list.h \
 	object/object-info.cpp object/object-info.h \
 	object/object-kind-hook.cpp object/object-kind-hook.h \
@@ -695,7 +706,6 @@ hengband_SOURCES = \
 	player-ability/player-strength.cpp player-ability/player-strength.h \
 	player-ability/player-wisdom.cpp player-ability/player-wisdom.h \
 	\
-	player-attack/player-attack-util.h \
 	player-attack/attack-chaos-effect.cpp player-attack/attack-chaos-effect.h \
 	player-attack/blood-sucking-processor.cpp player-attack/blood-sucking-processor.h \
 	player-attack/player-attack.cpp player-attack/player-attack.h \
@@ -905,6 +915,7 @@ hengband_SOURCES = \
 	system/alloc-entries.cpp system/alloc-entries.h \
 	system/angband.h \
 	system/angband-exceptions.h \
+	system/angband-system.h system/angband-system.cpp \
 	system/angband-version.cpp system/angband-version.h \
 	system/artifact-type-definition.cpp system/artifact-type-definition.h \
 	system/baseitem-info.cpp system/baseitem-info.h \
@@ -918,8 +929,9 @@ hengband_SOURCES = \
 	system/h-system.h system/h-type.h \
 	system/item-entity.cpp system/item-entity.h \
 	system/monster-entity.cpp system/monster-entity.h \
-	system/monster-race-info.h \
+	system/monster-race-info.cpp system/monster-race-info.h \
 	system/player-type-definition.cpp system/player-type-definition.h \
+	system/redrawing-flags-updater.cpp system/redrawing-flags-updater.h \
 	system/system-variables.cpp system/system-variables.h \
 	system/terrain-type-definition.cpp system/terrain-type-definition.h \
 	system/gamevalue.h \
@@ -955,15 +967,17 @@ hengband_SOURCES = \
 	util/angband-files.cpp util/angband-files.h \
 	util/buffer-shaper.cpp util/buffer-shaper.h \
 	util/bit-flags-calculator.h \
+	util/candidate-selector.cpp util/candidate-selector.h \
 	util/enum-converter.h \
 	util/enum-range.h \
+	util/finalizer.h \
 	util/flag-group.h \
 	util/int-char-converter.h \
 	util/object-sort.cpp util/object-sort.h \
 	util/point-2d.h \
 	util/probability-table.h \
-	util/quarks.cpp util/quarks.h \
 	util/rng-xoshiro.cpp util/rng-xoshiro.h \
+	util/sha256.cpp util/sha256.h \
 	util/sort.cpp util/sort.h \
 	util/string-processor.cpp util/string-processor.h \
 	\
@@ -991,10 +1005,9 @@ hengband_SOURCES = \
 	view/status-first-page.cpp view/status-first-page.h \
 	view/status-bars-table.cpp view/status-bars-table.h \
 	\
-	window/display-sub-window-spells.cpp window/display-sub-window-spells.h \
 	window/display-sub-windows.cpp window/display-sub-windows.h \
 	window/main-window-left-frame.cpp window/main-window-left-frame.h \
-	window/main-window-row-column.h \
+	window/main-window-row-column.cpp window/main-window-row-column.h \
 	window/main-window-stat-poster.cpp window/main-window-stat-poster.h \
 	window/main-window-util.cpp window/main-window-util.h \
 	window/main-window-equipments.cpp window/main-window-equipments.h \
@@ -1028,6 +1041,7 @@ EXTRA_hengband_SOURCES = \
 	main-win/main-win-bg.cpp main-win/main-win-bg.h \
 	main-win/main-win-cfg-reader.cpp main-win/main-win-cfg-reader.h \
 	main-win/main-win-define.h \
+	main-win/main-win-exception.cpp main-win/main-win-exception.h \
 	main-win/main-win-file-utils.cpp main-win/main-win-file-utils.h \
 	main-win/main-win-mci.cpp main-win/main-win-mci.h \
 	main-win/main-win-menuitem.h \
@@ -1038,6 +1052,7 @@ EXTRA_hengband_SOURCES = \
 	main-win/main-win-tokenizer.cpp main-win/main-win-tokenizer.h \
 	main-win/main-win-utils.cpp main-win/main-win-utils.h \
 	main-win/wav-reader.cpp main-win/wav-reader.h \
+	test/test-sha256.cpp \
 	wall.bmp \
 	stdafx.cpp stdafx.h
 
@@ -1058,8 +1073,10 @@ CXXCOMPILE = $(srcdir)/gcc-wrap $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
 if PCH
 stdafx.h.gch: stdafx.h stdafx.cpp Makefile
 	$(CXX) -x c++-header $(CXXFLAGS) $(srcdir)/stdafx.cpp -o $@
-	rm -f stdafx.h.gch.sum
-	md5sum $@ > stdafx.h.gch.sum
+	if test none != "$(PCH_CHECKSUMMER)" ; then \
+		rm -f "$@".sum ; \
+		$(PCH_CHECKSUMMER) $@ > "$@".sum ; \
+	fi
 
 $(hengband_SOURCES:.cpp=.$(OBJEXT)): stdafx.h.gch
 endif

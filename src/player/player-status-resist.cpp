@@ -1,4 +1,4 @@
-﻿#include "player/player-status-resist.h"
+#include "player/player-status-resist.h"
 #include "artifact/fixed-art-types.h"
 #include "grid/grid.h"
 #include "inventory/inventory-slot-types.h"
@@ -10,7 +10,6 @@
 #include "object-enchant/tr-types.h"
 #include "object-enchant/trc-types.h"
 #include "object-hook/hook-weapon.h"
-#include "object/object-flags.h"
 #include "player-base/player-race.h"
 #include "player-info/class-info.h"
 #include "player-info/race-info.h"
@@ -29,7 +28,6 @@
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
 #include "util/bit-flags-calculator.h"
-#include "util/quarks.h"
 #include "util/string-processor.h"
 
 /*!
@@ -67,10 +65,10 @@ PERCENTAGE calc_acid_damage_rate(PlayerType *player_ptr)
         return 0;
     }
 
-    BIT_FLAGS flgs = has_vuln_acid(player_ptr);
+    BIT_FLAGS flags = has_vuln_acid(player_ptr);
 
     for (BIT_FLAGS check_flag = 0x01U; check_flag < FLAG_CAUSE_MAX; check_flag <<= 1) {
-        if (any_bits(flgs, check_flag)) {
+        if (any_bits(flags, check_flag)) {
             if (check_flag == FLAG_CAUSE_MUTATION) {
                 per *= 2;
             } else {
@@ -100,9 +98,9 @@ PERCENTAGE calc_elec_damage_rate(PlayerType *player_ptr)
         return 0;
     }
 
-    BIT_FLAGS flgs = has_vuln_elec(player_ptr);
+    BIT_FLAGS flags = has_vuln_elec(player_ptr);
     for (BIT_FLAGS check_flag = 0x01U; check_flag < FLAG_CAUSE_MAX; check_flag <<= 1) {
-        if (any_bits(flgs, check_flag)) {
+        if (any_bits(flags, check_flag)) {
             if (check_flag == FLAG_CAUSE_MUTATION) {
                 per *= 2;
             } else {
@@ -127,9 +125,9 @@ PERCENTAGE calc_elec_damage_rate(PlayerType *player_ptr)
 PERCENTAGE calc_fire_damage_rate(PlayerType *player_ptr)
 {
     PERCENTAGE per = 100;
-    BIT_FLAGS flgs = has_vuln_fire(player_ptr);
+    BIT_FLAGS flags = has_vuln_fire(player_ptr);
     for (BIT_FLAGS check_flag = 0x01U; check_flag < FLAG_CAUSE_MAX; check_flag <<= 1) {
-        if (any_bits(flgs, check_flag)) {
+        if (any_bits(flags, check_flag)) {
             if (check_flag == FLAG_CAUSE_MUTATION) {
                 per *= 2;
             } else {
@@ -155,9 +153,9 @@ PERCENTAGE calc_fire_damage_rate(PlayerType *player_ptr)
 PERCENTAGE calc_cold_damage_rate(PlayerType *player_ptr)
 {
     PERCENTAGE per = 100;
-    BIT_FLAGS flgs = has_vuln_cold(player_ptr);
+    BIT_FLAGS flags = has_vuln_cold(player_ptr);
     for (BIT_FLAGS check_flag = 0x01U; check_flag < FLAG_CAUSE_MAX; check_flag <<= 1) {
-        if (any_bits(flgs, check_flag)) {
+        if (any_bits(flags, check_flag)) {
             if (check_flag == FLAG_CAUSE_MUTATION) {
                 per *= 2;
             } else {

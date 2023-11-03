@@ -1,4 +1,4 @@
-﻿#include "world/world-object.h"
+#include "world/world-object.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "object-enchant/item-apply-magic.h"
 #include "object/tval-types.h"
@@ -32,13 +32,11 @@ OBJECT_IDX o_pop(FloorType *floor_ptr)
     }
 
     for (OBJECT_IDX i = 1; i < floor_ptr->o_max; i++) {
-        ItemEntity *o_ptr;
-        o_ptr = &floor_ptr->o_list[i];
-        if (o_ptr->bi_id) {
+        if (floor_ptr->o_list[i].is_valid()) {
             continue;
         }
-        floor_ptr->o_cnt++;
 
+        floor_ptr->o_cnt++;
         return i;
     }
 
@@ -68,13 +66,13 @@ OBJECT_IDX o_pop(FloorType *floor_ptr)
  * Note that if no objects are "appropriate", then this function will\n
  * fail, and return zero, but this should *almost* never happen.\n
  */
-OBJECT_IDX get_obj_index(PlayerType *player_ptr, DEPTH level, BIT_FLAGS mode)
+OBJECT_IDX get_obj_index(const FloorType *floor_ptr, DEPTH level, BIT_FLAGS mode)
 {
     if (level > MAX_DEPTH - 1) {
         level = MAX_DEPTH - 1;
     }
 
-    if ((level > 0) && dungeons_info[player_ptr->dungeon_idx].flags.has_not(DungeonFeatureType::BEGINNER)) {
+    if ((level > 0) && floor_ptr->get_dungeon_definition().flags.has_not(DungeonFeatureType::BEGINNER)) {
         if (one_in_(CHANCE_BASEITEM_LEVEL_BOOST)) {
             level = 1 + (level * MAX_DEPTH / randint1(MAX_DEPTH));
         }
@@ -88,7 +86,7 @@ OBJECT_IDX get_obj_index(PlayerType *player_ptr, DEPTH level, BIT_FLAGS mode)
             break;
         }
 
-        const auto &baseitem = baseitems_info[entry.index];
+        const auto &baseitem = entry.get_baseitem();
         if ((mode & AM_FORBID_CHEST) && (baseitem.bi_key.tval() == ItemKindType::CHEST)) {
             continue;
         }

@@ -1,10 +1,11 @@
-﻿#pragma once
+#pragma once
 
 #include "monster-attack/monster-attack-effect.h"
 #include "monster-attack/monster-attack-table.h"
 #include "monster-race/monster-aura-types.h"
 #include "monster-race/race-ability-flags.h"
 #include "monster-race/race-behavior-flags.h"
+#include "monster-race/race-brightness-flags.h"
 #include "monster-race/race-drop-flags.h"
 #include "monster-race/race-feature-flags.h"
 #include "monster-race/race-flags-resistance.h"
@@ -15,6 +16,8 @@
 #include "monster-race/race-wilderness-flags.h"
 #include "system/angband.h"
 #include "util/flag-group.h"
+#include <map>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -88,7 +91,8 @@ public:
     EnumClassFlagGroup<MonsterFeatureType> feature_flags; //!< 能力フラグ（地形関連） / Feature Flags
     EnumClassFlagGroup<MonsterPopulationType> population_flags; //!< 能力フラグ（出現数関連） / Population Flags
     EnumClassFlagGroup<MonsterSpeakType> speak_flags; //!< 能力フラグ（セリフ） / Speaking Flags
-    MonsterBlow blow[MAX_NUM_BLOWS]{}; //!< 打撃能力定義 / Up to four blows per round
+    EnumClassFlagGroup<MonsterBrightnessType> brightness_flags; //!< 能力フラグ（明暗） / Speaking Lite or Dark
+    MonsterBlow blows[MAX_NUM_BLOWS]{}; //!< 打撃能力定義 / Up to four blows per round
 
     //! 指定護衛リスト <モンスター種族ID,護衛数ダイス数,護衛数ダイス面>
     std::vector<std::tuple<MonsterRaceId, DICE_NUMBER, DICE_SID>> reinforces;
@@ -133,4 +137,38 @@ public:
     PLAYER_LEVEL defeat_level{}; //!< 倒したレベル(ユニーク用) / player level at which defeated this race
     REAL_TIME defeat_time{}; //!< 倒した時間(ユニーク用) / time at which defeated this race
     PERCENTAGE cur_hp_per{}; //!< 生成時現在HP率(%)
+
+    const std::string &decide_horror_message() const;
+    bool has_living_flag() const;
+    bool is_explodable() const;
+    std::string get_died_message() const;
+    void kill_unique();
+};
+
+class MonraceList {
+public:
+    MonraceList(MonraceList &&) = delete;
+    MonraceList(const MonraceList &) = delete;
+    MonraceList &operator=(const MonraceList &) = delete;
+    MonraceList &operator=(MonraceList &&) = delete;
+    MonsterRaceInfo &operator[](const MonsterRaceId r_idx);
+    const MonsterRaceInfo &operator[](const MonsterRaceId r_idx) const;
+
+    static const std::map<MonsterRaceId, std::set<MonsterRaceId>> &get_unified_uniques();
+    static MonraceList &get_instance();
+    bool can_unify_separate(const MonsterRaceId r_idx) const;
+    void kill_unified_unique(const MonsterRaceId r_idx);
+    bool is_selectable(const MonsterRaceId r_idx) const;
+    void defeat_separated_uniques();
+    bool is_unified(const MonsterRaceId r_idx) const;
+    bool exists_separates(const MonsterRaceId r_idx) const;
+    bool is_separated(const MonsterRaceId r_idx) const;
+    bool can_select_separate(const MonsterRaceId r_idx, const int hp, const int maxhp) const;
+
+private:
+    MonraceList() = default;
+
+    static MonraceList instance;
+
+    const static std::map<MonsterRaceId, std::set<MonsterRaceId>> unified_uniques;
 };

@@ -1,7 +1,7 @@
-﻿#include "dungeon/quest.h"
+#include "dungeon/quest.h"
+#include "artifact/fixed-art-types.h"
 #include "cmd-io/cmd-dump.h"
 #include "core/asking-player.h"
-#include "core/player-update-types.h"
 #include "floor/cave.h"
 #include "floor/floor-events.h"
 #include "floor/floor-mode-changer.h"
@@ -12,6 +12,7 @@
 #include "locale/english.h"
 #include "main/music-definitions-table.h"
 #include "main/sound-of-music.h"
+#include "monster-floor/place-monster-types.h"
 #include "monster-race/monster-race-hook.h"
 #include "monster-race/monster-race.h"
 #include "monster-race/race-flags1.h"
@@ -28,7 +29,7 @@
 #include "player/player-status.h"
 #include "system/artifact-type-definition.h"
 #include "system/dungeon-info.h"
-#include "system/floor-type-definition.h"
+#include "system/floor-type-definition.h" // @todo 相互参照、将来的に削除する.
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/monster-race-info.h"
@@ -61,12 +62,12 @@ QuestList &QuestList::get_instance()
     return instance;
 }
 
-quest_type &QuestList::operator[](QuestId id)
+QuestType &QuestList::operator[](QuestId id)
 {
     return this->quest_data.at(id);
 }
 
-const quest_type &QuestList::operator[](QuestId id) const
+const QuestType &QuestList::operator[](QuestId id) const
 {
     return this->quest_data.at(id);
 }
@@ -137,7 +138,7 @@ void QuestList::initialize()
     }
     try {
         auto quest_numbers = parse_quest_info(QUEST_DEFINITION_LIST);
-        quest_type init_quest{};
+        QuestType init_quest{};
         init_quest.status = QuestStatusType::UNTAKEN;
         this->quest_data.insert({ QuestId::NONE, init_quest });
         for (auto q : quest_numbers) {
@@ -159,50 +160,62 @@ void QuestList::initialize()
  * @param quest_idx クエストID
  * @return 固定クエストならばTRUEを返す
  */
-bool quest_type::is_fixed(QuestId quest_idx)
+bool QuestType::is_fixed(QuestId quest_idx)
 {
     return (enum2i(quest_idx) < MIN_RANDOM_QUEST) || (enum2i(quest_idx) > MAX_RANDOM_QUEST);
+}
+
+bool QuestType::has_reward() const
+{
+    return this->reward_artifact_idx != FixedArtifactId::NONE;
+}
+
+ArtifactType &QuestType::get_reward() const
+{
+    const auto &artifacts = ArtifactsInfo::get_instance();
+    return artifacts.get_artifact(this->reward_artifact_idx);
 }
 
 /*!
  * @brief ランダムクエストの討伐ユニークを決める / Determine the random quest uniques
  * @param q_ptr クエスト構造体の参照ポインタ
  */
-void determine_random_questor(PlayerType *player_ptr, quest_type *q_ptr)
+void determine_random_questor(PlayerType *player_ptr, QuestType *q_ptr)
 {
     get_mon_num_prep(player_ptr, mon_hook_quest, nullptr);
     MonsterRaceId r_idx;
     while (true) {
-        /*
-         * Random monster 5 - 10 levels out of depth
-         * (depending on level)
-         */
-        r_idx = get_mon_num(player_ptr, 0, q_ptr->level + 5 + randint1(q_ptr->level / 10), GMN_ARENA);
-        MonsterRaceInfo *r_ptr;
-        r_ptr = &monraces_info[r_idx];
+        r_idx = get_mon_num(player_ptr, 0, q_ptr->level + 5 + randint1(q_ptr->level / 10), PM_ARENA);
+        const auto &monrace = monraces_info[r_idx];
+        if (monrace.kind_flags.has_not(MonsterKindType::UNIQUE)) {
+            continue;
+        }
 
-        if (r_ptr->kind_flags.has_not(MonsterKindType::UNIQUE)) {
+        if (monrace.flags8 & RF8_NO_QUEST) {
             continue;
         }
-        if (r_ptr->flags8 & RF8_NO_QUEST) {
+
+        if (monrace.flags1 & RF1_QUESTOR) {
             continue;
         }
-        if (r_ptr->flags1 & RF1_QUESTOR) {
+
+        if (monrace.rarity > 100) {
             continue;
         }
-        if (r_ptr->rarity > 100) {
+
+        if (monrace.behavior_flags.has(MonsterBehaviorType::FRIENDLY)) {
             continue;
         }
-        if (r_ptr->behavior_flags.has(MonsterBehaviorType::FRIENDLY)) {
+
+        if (monrace.feature_flags.has(MonsterFeatureType::AQUATIC)) {
             continue;
         }
-        if (r_ptr->feature_flags.has(MonsterFeatureType::AQUATIC)) {
+
+        if (monrace.wilderness_flags.has(MonsterWildernessType::WILD_ONLY)) {
             continue;
         }
-        if (r_ptr->wilderness_flags.has(MonsterWildernessType::WILD_ONLY)) {
-            continue;
-        }
-        if (no_questor_or_bounty_uniques(r_idx)) {
+
+        if (MonraceList::get_instance().can_unify_separate(r_idx)) {
             continue;
         }
 
@@ -210,7 +223,7 @@ void determine_random_questor(PlayerType *player_ptr, quest_type *q_ptr)
          * Accept monsters that are 2 - 6 levels
          * out of depth depending on the quest level
          */
-        if (r_ptr->level > (q_ptr->level + (q_ptr->level / 20))) {
+        if (monrace.level > (q_ptr->level + (q_ptr->level / 20))) {
             break;
         }
     }
@@ -224,7 +237,7 @@ void determine_random_questor(PlayerType *player_ptr, quest_type *q_ptr)
  * @param q_ptr クエスト情報への参照ポインタ
  * @param stat ステータス(成功or失敗)
  */
-void record_quest_final_status(quest_type *q_ptr, PLAYER_LEVEL lev, QuestStatusType stat)
+void record_quest_final_status(QuestType *q_ptr, PLAYER_LEVEL lev, QuestStatusType stat)
 {
     q_ptr->status = stat;
     q_ptr->complev = lev;
@@ -245,12 +258,12 @@ void complete_quest(PlayerType *player_ptr, QuestId quest_num)
     switch (q_ptr->type) {
     case QuestKindType::RANDOM:
         if (record_rand_quest) {
-            exe_write_diary_quest(player_ptr, DIARY_RAND_QUEST_C, quest_num);
+            exe_write_diary_quest(player_ptr, DiaryKind::RAND_QUEST_C, quest_num);
         }
         break;
     default:
         if (record_fix_quest) {
-            exe_write_diary_quest(player_ptr, DIARY_FIX_QUEST_C, quest_num);
+            exe_write_diary_quest(player_ptr, DiaryKind::FIX_QUEST_C, quest_num);
         }
         break;
     }
@@ -276,10 +289,10 @@ void check_find_art_quest_completion(PlayerType *player_ptr, ItemEntity *o_ptr)
 {
     const auto &quest_list = QuestList::get_instance();
     /* Check if completed a quest */
-    for (const auto &[q_idx, q_ref] : quest_list) {
-        auto found_artifact = (q_ref.type == QuestKindType::FIND_ARTIFACT);
-        found_artifact &= (q_ref.status == QuestStatusType::TAKEN);
-        found_artifact &= (o_ptr->is_specific_artifact(q_ref.reward_artifact_idx));
+    for (const auto &[q_idx, quest] : quest_list) {
+        auto found_artifact = (quest.type == QuestKindType::FIND_ARTIFACT);
+        found_artifact &= (quest.status == QuestStatusType::TAKEN);
+        found_artifact &= (o_ptr->is_specific_artifact(quest.reward_artifact_idx));
         if (found_artifact) {
             complete_quest(player_ptr, q_idx);
         }
@@ -328,64 +341,6 @@ void quest_discovery(QuestId q_idx)
 }
 
 /*!
- * @brief 新しく入ったダンジョンの階層に固定されている一般のクエストを探し出しIDを返す。
- * / Hack -- Check if a level is a "quest" level
- * @param player_ptr プレイヤーへの参照ポインタ
- * @param level 検索対象になる階
- * @return クエストIDを返す。該当がない場合0を返す。
- */
-QuestId quest_number(PlayerType *player_ptr, DEPTH level)
-{
-    auto *floor_ptr = player_ptr->current_floor_ptr;
-    const auto &quest_list = QuestList::get_instance();
-    if (inside_quest(floor_ptr->quest_number)) {
-        return floor_ptr->quest_number;
-    }
-
-    for (const auto &[q_idx, q_ref] : quest_list) {
-        if (q_ref.status != QuestStatusType::TAKEN) {
-            continue;
-        }
-        auto depth_quest = (q_ref.type == QuestKindType::KILL_LEVEL);
-        depth_quest &= !(q_ref.flags & QUEST_FLAG_PRESET);
-        depth_quest &= (q_ref.level == level);
-        depth_quest &= (q_ref.dungeon == player_ptr->dungeon_idx);
-        if (depth_quest) {
-            return q_idx;
-        }
-    }
-
-    return random_quest_number(player_ptr, level);
-}
-
-/*!
- * @brief 新しく入ったダンジョンの階層に固定されているランダムクエストを探し出しIDを返す。
- * @param player_ptr プレイヤーへの参照ポインタ
- * @param level 検索対象になる階
- * @return クエストIDを返す。該当がない場合0を返す。
- */
-QuestId random_quest_number(PlayerType *player_ptr, DEPTH level)
-{
-    if (player_ptr->dungeon_idx != DUNGEON_ANGBAND) {
-        return QuestId::NONE;
-    }
-
-    const auto &quest_list = QuestList::get_instance();
-    for (auto q_idx : EnumRange(QuestId::RANDOM_QUEST1, QuestId::RANDOM_QUEST10)) {
-        const auto &q_ref = quest_list[q_idx];
-        auto is_random_quest = (q_ref.type == QuestKindType::RANDOM);
-        is_random_quest &= (q_ref.status == QuestStatusType::TAKEN);
-        is_random_quest &= (q_ref.level == level);
-        is_random_quest &= (q_ref.dungeon == DUNGEON_ANGBAND);
-        if (is_random_quest) {
-            return q_idx;
-        }
-    }
-
-    return QuestId::NONE;
-}
-
-/*!
  * @brief クエスト階層から離脱する際の処理
  * @param player_ptr プレイヤーへの参照ポインタ
  */
@@ -412,7 +367,7 @@ void leave_quest_check(PlayerType *player_ptr)
         quest_list[QuestId::TOWER1].complev = player_ptr->lev;
         break;
     case QuestKindType::FIND_ARTIFACT:
-        artifacts_info.at(q_ptr->reward_artifact_idx).gen_flags.reset(ItemGenerationTraitType::QUESTITEM);
+        q_ptr->get_reward().gen_flags.reset(ItemGenerationTraitType::QUESTITEM);
         break;
     case QuestKindType::RANDOM:
         monraces_info[q_ptr->r_idx].flags1 &= ~(RF1_QUESTOR);
@@ -425,13 +380,13 @@ void leave_quest_check(PlayerType *player_ptr)
     /* Record finishing a quest */
     if (q_ptr->type == QuestKindType::RANDOM) {
         if (record_rand_quest) {
-            exe_write_diary_quest(player_ptr, DIARY_RAND_QUEST_F, leaving_quest);
+            exe_write_diary_quest(player_ptr, DiaryKind::RAND_QUEST_F, leaving_quest);
         }
         return;
     }
 
     if (record_fix_quest) {
-        exe_write_diary_quest(player_ptr, DIARY_FIX_QUEST_F, leaving_quest);
+        exe_write_diary_quest(player_ptr, DiaryKind::FIX_QUEST_F, leaving_quest);
     }
 }
 
@@ -491,7 +446,7 @@ void do_cmd_quest(PlayerType *player_ptr)
     }
 
     msg_print(_("ここにはクエストへの入口があります。", "There is an entry of a quest."));
-    if (!get_check(_("クエストに入りますか？", "Do you enter? "))) {
+    if (!input_check(_("クエストに入りますか？", "Do you enter? "))) {
         return;
     }
     if (is_echizen(player_ptr)) {

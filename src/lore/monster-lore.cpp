@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief モンスターの思い出表示に必要なフラグ類の処理
  * @date 2020/06/09
  * @author Hourier
@@ -144,8 +144,8 @@ static void set_race_flags(lore_type *lore_ptr)
  */
 void process_monster_lore(PlayerType *player_ptr, MonsterRaceId r_idx, monster_lore_mode mode)
 {
-    lore_type tmp_lore;
-    lore_type *lore_ptr = initialize_lore_type(&tmp_lore, r_idx, mode);
+    lore_type tmp_lore(r_idx, mode);
+    lore_type *lore_ptr = &tmp_lore;
 
     auto is_valid_reinforcer = [](const auto &reinforce) {
         auto [r_idx, dd, ds] = reinforce;
@@ -164,7 +164,7 @@ void process_monster_lore(PlayerType *player_ptr, MonsterRaceId r_idx, monster_l
         lore_ptr->know_everything = true;
     }
 
-    set_drop_flags(lore_ptr);
+    set_flags_for_full_knowledge(lore_ptr);
     set_msex_flags(lore_ptr);
     set_flags1(lore_ptr);
     set_race_flags(lore_ptr);
@@ -194,7 +194,7 @@ void process_monster_lore(PlayerType *player_ptr, MonsterRaceId r_idx, monster_l
     display_lore_this(player_ptr, lore_ptr);
     display_monster_aura(lore_ptr);
     if (lore_ptr->flags2 & RF2_REFLECTING) {
-        hooked_roff(format(_("%^sは矢の呪文を跳ね返す。", "%^s reflects bolt spells.  "), Who::who(lore_ptr->msex)));
+        hooked_roff(format(_("%s^は矢の呪文を跳ね返す。", "%s^ reflects bolt spells.  "), Who::who(lore_ptr->msex)));
     }
 
     display_monster_collective(lore_ptr);

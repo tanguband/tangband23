@@ -1,4 +1,4 @@
-﻿#include "util/string-processor.h"
+#include "util/string-processor.h"
 #include "util/int-char-converter.h"
 
 /*!
@@ -403,11 +403,11 @@ void ascii_to_text(char *buf, std::string_view sv, size_t bufsize)
  *
  * This function should be equivalent to the strlcpy() function in BSD.
  */
-size_t angband_strcpy(char *buf, concptr src, size_t bufsize)
+size_t angband_strcpy(char *buf, std::string_view src, size_t bufsize)
 {
 #ifdef JP
     char *d = buf;
-    concptr s = src;
+    const char *s = src.data();
     size_t len = 0;
 
     if (bufsize > 0) {
@@ -437,19 +437,18 @@ size_t angband_strcpy(char *buf, concptr src, size_t bufsize)
     return len;
 
 #else
-    size_t len = strlen(src);
-    size_t ret = len;
+    auto len = src.length();
     if (bufsize == 0) {
-        return ret;
+        return len;
     }
 
     if (len >= bufsize) {
         len = bufsize - 1;
     }
 
-    (void)memcpy(buf, src, len);
+    (void)src.copy(buf, len);
     buf[len] = '\0';
-    return ret;
+    return src.length();
 #endif
 }
 
@@ -464,13 +463,13 @@ size_t angband_strcpy(char *buf, concptr src, size_t bufsize)
  *
  * This function should be equivalent to the strlcat() function in BSD.
  */
-size_t angband_strcat(char *buf, concptr src, size_t bufsize)
+size_t angband_strcat(char *buf, std::string_view src, size_t bufsize)
 {
     size_t dlen = strlen(buf);
     if (dlen < bufsize - 1) {
         return dlen + angband_strcpy(buf + dlen, src, bufsize - dlen);
     } else {
-        return dlen + strlen(src);
+        return dlen + src.length();
     }
 }
 
@@ -479,23 +478,26 @@ size_t angband_strcat(char *buf, concptr src, size_t bufsize)
  *
  * angband_strstr() can handle Kanji strings correctly.
  */
-char *angband_strstr(concptr haystack, concptr needle)
+char *angband_strstr(const char *haystack, std::string_view needle)
 {
-    int l1 = strlen(haystack);
-    int l2 = strlen(needle);
+    std::string_view haystack_view(haystack);
+    auto l1 = haystack_view.length();
+    auto l2 = needle.length();
+    if (l1 < l2) {
+        return nullptr;
+    }
 
-    if (l1 >= l2) {
-        for (int i = 0; i <= l1 - l2; i++) {
-            if (!strncmp(haystack + i, needle, l2)) {
-                return (char *)haystack + i;
-            }
+    for (size_t i = 0; i <= l1 - l2; i++) {
+        const auto part = haystack_view.substr(i);
+        if (part.starts_with(needle)) {
+            return const_cast<char *>(haystack) + i;
+        }
 
 #ifdef JP
-            if (iskanji(*(haystack + i))) {
-                i++;
-            }
-#endif
+        if (iskanji(*(haystack + i))) {
+            i++;
         }
+#endif
     }
 
     return nullptr;
@@ -591,6 +593,16 @@ int strrncmp(const char *s1, const char *s2, int len)
     }
 
     return 0;
+}
+
+/*
+ * @brief マルチバイト文字のダメ文字('\')を考慮しつつ文字列比較を行う
+ * @param src 比較元の文字列
+ * @param find 比較したい文字列
+ */
+bool str_find(const std::string &src, std::string_view find)
+{
+    return angband_strstr(src.data(), find) != nullptr;
 }
 
 /**
@@ -714,11 +726,9 @@ std::vector<std::string> str_split(std::string_view str, char delim, bool trim, 
 std::vector<std::string> str_separate(std::string_view str, size_t len)
 {
     std::vector<std::string> result;
-    std::vector<char> buf(len + 1);
 
     while (!str.empty()) {
-        angband_strcpy(buf.data(), str.data(), buf.size());
-        result.emplace_back(buf.data());
+        result.push_back(str_substr(str, 0, len));
         str.remove_prefix(result.back().size());
     }
 
@@ -751,4 +761,81 @@ std::string str_erase(std::string str, std::string_view erase_chars)
     }
 
     return str;
+}
+
+static std::pair<size_t, size_t> adjust_substr_pos(std::string_view sv, size_t pos, size_t n)
+{
+    const auto start = std::min(pos, sv.length());
+    const auto end = n == std::string_view::npos ? sv.length() : std::min(pos + n, sv.length());
+
+#ifdef JP
+    auto seek_pos = 0U;
+    while (seek_pos < start) {
+        if (iskanji(sv[seek_pos])) {
+            ++seek_pos;
+        }
+        ++seek_pos;
+    }
+    const auto mb_pos = seek_pos;
+
+    while (seek_pos < end) {
+        if (iskanji(sv[seek_pos])) {
+            if (seek_pos == end - 1) {
+                break;
+            }
+            ++seek_pos;
+        }
+        ++seek_pos;
+    }
+    const auto mb_n = seek_pos - mb_pos;
+
+    return { mb_pos, mb_n };
+#else
+    return { start, end - start };
+#endif
+}
+
+/*!
+ * @brief 2バイト文字を考慮して部分文字列を取得する
+ *
+ * 引数で与えられた文字列から pos バイト目から n バイトの部分文字列を取得する。
+ * 但し、以下の通り2バイト文字の途中で分断されないようにする。
+ * - 開始位置 pos バイト目が2バイト文字の後半バイトの場合は pos+1 バイト目を開始位置とする。
+ * - 終了位置 pos+n バイト目が2バイト文字の前半バイトの場合は pos+n-1 バイト目を終了位置とする。
+ *
+ * @param sv 文字列
+ * @param pos 部分文字列の開始位置
+ * @param n 部分文字列の長さ
+ * @return 部分文字列
+ */
+std::string str_substr(std::string_view sv, size_t pos, size_t n)
+{
+    const auto &[mb_pos, mb_n] = adjust_substr_pos(sv, pos, n);
+    return std::string(sv.substr(mb_pos, mb_n));
+}
+
+/*!
+ * @brief 2バイト文字を考慮して部分文字列を取得する
+ *
+ * 引数で与えられた文字列を pos バイト目から n バイトの部分文字列にして返す。
+ * 但し、以下の通り2バイト文字の途中で分断されないようにする。
+ * - 開始位置 pos バイト目が2バイト文字の後半バイトの場合は pos+1 バイト目を開始位置とする。
+ * - 終了位置 pos+n バイト目が2バイト文字の前半バイトの場合は pos+n-1 バイト目を終了位置とする。
+ *
+ * @param str 文字列
+ * @param pos 部分文字列の開始位置
+ * @param n 部分文字列の長さ
+ * @return 部分文字列
+ */
+std::string str_substr(std::string &&str, size_t pos, size_t n)
+{
+    const auto &[mb_pos, mb_n] = adjust_substr_pos(str, pos, n);
+    str.erase(mb_pos + mb_n);
+    str.erase(0, mb_pos);
+    return std::move(str);
+}
+
+std::string str_substr(const char *str, size_t pos, size_t n)
+{
+    return str_substr(std::string_view(str), pos, n);
 }

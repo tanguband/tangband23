@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "player-info/class-types.h"
 #include "player-info/race-types.h"
@@ -10,6 +10,7 @@
 /*
  * A structure to hold "rolled" information
  */
+enum class Virtue : short;
 struct birther {
     player_sex psex{}; /* Sex index */
     PlayerRaceType prace{}; /* Race index */
@@ -25,13 +26,13 @@ struct birther {
 
     PRICE au{}; /*!< 初期の所持金 */
 
-    BASE_STATUS stat_max[6]{}; /* Current "maximal" stat values */
-    BASE_STATUS stat_max_max[6]{}; /* Maximal "maximal" stat values */
+    short stat_max[6]{}; /* Current "maximal" stat values */
+    short stat_max_max[6]{}; /* Maximal "maximal" stat values */
     int player_hp[PY_MAX_LEVEL]{};
 
     int16_t chaos_patron{}; /*! カオスパトロンのID */
 
-    int16_t vir_types[8]{};
+    Virtue vir_types[8]{};
 
     char history[4][60]{};
 

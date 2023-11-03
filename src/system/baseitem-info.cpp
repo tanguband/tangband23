@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ベースアイテム情報の構造体 / Information about object "kinds", including player knowledge.
  * @date 2019/05/01
  * @author deskull
@@ -16,8 +16,8 @@
 #include "sv-definition/sv-protector-types.h"
 #include "sv-definition/sv-rod-types.h"
 #include "sv-definition/sv-weapon-types.h"
+#include "system/angband-exceptions.h"
 #include <set>
-#include <stdexcept>
 #include <unordered_map>
 
 namespace {
@@ -68,7 +68,7 @@ std::optional<int> BaseitemKey::sval() const
 ItemKindType BaseitemKey::get_arrow_kind() const
 {
     if ((this->type_value != ItemKindType::BOW) || !this->subtype_value.has_value()) {
-        throw std::logic_error(ITEM_NOT_BOW);
+        THROW_EXCEPTION(std::logic_error, ITEM_NOT_BOW);
     }
 
     switch (this->subtype_value.value()) {
@@ -416,7 +416,7 @@ bool BaseitemKey::is_rare() const
 short BaseitemKey::get_bow_energy() const
 {
     if ((this->type_value != ItemKindType::BOW) || !this->subtype_value.has_value()) {
-        throw std::logic_error(ITEM_NOT_BOW);
+        THROW_EXCEPTION(std::logic_error, ITEM_NOT_BOW);
     }
 
     switch (this->subtype_value.value()) {
@@ -436,7 +436,7 @@ short BaseitemKey::get_bow_energy() const
 int BaseitemKey::get_arrow_magnification() const
 {
     if ((this->type_value != ItemKindType::BOW) || !this->subtype_value.has_value()) {
-        throw std::logic_error(ITEM_NOT_BOW);
+        THROW_EXCEPTION(std::logic_error, ITEM_NOT_BOW);
     }
 
     switch (this->subtype_value.value()) {
@@ -457,7 +457,7 @@ int BaseitemKey::get_arrow_magnification() const
 bool BaseitemKey::is_aiming_rod() const
 {
     if ((this->type_value != ItemKindType::ROD) || !this->subtype_value.has_value()) {
-        throw std::logic_error(ITEM_NOT_ROD);
+        THROW_EXCEPTION(std::logic_error, ITEM_NOT_ROD);
     }
 
     switch (this->subtype_value.value()) {
@@ -486,7 +486,7 @@ bool BaseitemKey::is_aiming_rod() const
 bool BaseitemKey::is_lite_requiring_fuel() const
 {
     if ((this->type_value != ItemKindType::LITE) || !this->subtype_value.has_value()) {
-        throw std::logic_error(ITEM_NOT_LITE);
+        THROW_EXCEPTION(std::logic_error, ITEM_NOT_LITE);
     }
 
     switch (this->subtype_value.value()) {
@@ -574,6 +574,45 @@ bool BaseitemKey::is_mushrooms() const
 BaseitemInfo::BaseitemInfo()
     : bi_key(ItemKindType::NONE)
 {
+}
+
+/*!
+ * @brief 最初から簡易な名称が明らかなベースアイテムにその旨のフラグを立てる
+ */
+void BaseitemInfo::decide_easy_know()
+{
+    switch (this->bi_key.tval()) {
+    case ItemKindType::LIFE_BOOK:
+    case ItemKindType::SORCERY_BOOK:
+    case ItemKindType::NATURE_BOOK:
+    case ItemKindType::CHAOS_BOOK:
+    case ItemKindType::DEATH_BOOK:
+    case ItemKindType::TRUMP_BOOK:
+    case ItemKindType::ARCANE_BOOK:
+    case ItemKindType::CRAFT_BOOK:
+    case ItemKindType::DEMON_BOOK:
+    case ItemKindType::CRUSADE_BOOK:
+    case ItemKindType::MUSIC_BOOK:
+    case ItemKindType::HISSATSU_BOOK:
+    case ItemKindType::HEX_BOOK:
+    case ItemKindType::FLASK:
+    case ItemKindType::JUNK:
+    case ItemKindType::BOTTLE:
+    case ItemKindType::SKELETON:
+    case ItemKindType::SPIKE:
+    case ItemKindType::WHISTLE:
+    case ItemKindType::FOOD:
+    case ItemKindType::POTION:
+    case ItemKindType::SCROLL:
+    case ItemKindType::ROD:
+    case ItemKindType::STATUE:
+    case ItemKindType::PARCHMENT:
+        this->easy_know = true;
+        return;
+    default:
+        this->easy_know = false;
+        return;
+    }
 }
 
 std::vector<BaseitemInfo> baseitems_info;

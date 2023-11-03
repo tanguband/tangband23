@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 各職業の特殊技能実装 / Special magics
  * @date 2014/01/15
  * @author
@@ -13,7 +13,6 @@
 #include "cmd-action/cmd-mind.h"
 #include "action/action-limited.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
 #include "core/window-redrawer.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
@@ -47,12 +46,13 @@
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/screen-processor.h"
 #include "timed-effect/player-stun.h"
 #include "timed-effect/timed-effects.h"
-#include "util/buffer-shaper.h"
 #include "util/enum-converter.h"
 #include "view/display-messages.h"
+#include "view/display-util.h"
 
 /*!
  * @brief 職業別特殊技能の処理用構造体
@@ -168,7 +168,7 @@ static bool check_mind_hp_mp_sufficiency(PlayerType *player_ptr, cm_type *cm_ptr
         return false;
     }
 
-    return get_check(_("それでも挑戦しますか? ", "Attempt it anyway? "));
+    return input_check(_("それでも挑戦しますか? ", "Attempt it anyway? "));
 }
 
 static void decide_mind_chance(PlayerType *player_ptr, cm_type *cm_ptr)
@@ -239,7 +239,7 @@ static void check_mind_mindcrafter(PlayerType *player_ptr, cm_type *cm_ptr)
         return;
     }
 
-    msg_format(_("%sの力が制御できない氾流となって解放された！", "Your mind unleashes its power in an uncontrollable storm!"), cm_ptr->mind_explanation);
+    msg_print(_(format("%sの力が制御できない氾流となって解放された！", cm_ptr->mind_explanation), "Your mind unleashes its power in an uncontrollable storm!"));
     project(player_ptr, PROJECT_WHO_UNCTRL_POWER, 2 + cm_ptr->plev / 10, player_ptr->y, player_ptr->x, cm_ptr->plev * 2, AttributeType::MANA,
         PROJECT_JUMP | PROJECT_KILL | PROJECT_GRID | PROJECT_ITEM);
     player_ptr->csp = std::max(0, player_ptr->csp - cm_ptr->plev * std::max(1, cm_ptr->plev / 10));
@@ -267,7 +267,7 @@ static void check_mind_mirror_master(PlayerType *player_ptr, cm_type *cm_ptr)
         return;
     }
 
-    msg_format(_("%sの力が制御できない氾流となって解放された！", "Your mind unleashes its power in an uncontrollable storm!"), cm_ptr->mind_explanation);
+    msg_print(_(format("%sの力が制御できない氾流となって解放された！", cm_ptr->mind_explanation), "Your mind unleashes its power in an uncontrollable storm!"));
     project(player_ptr, PROJECT_WHO_UNCTRL_POWER, 2 + cm_ptr->plev / 10, player_ptr->y, player_ptr->x, cm_ptr->plev * 2, AttributeType::MANA,
         PROJECT_JUMP | PROJECT_KILL | PROJECT_GRID | PROJECT_ITEM);
     player_ptr->csp = std::max(0, player_ptr->csp - cm_ptr->plev * std::max(1, cm_ptr->plev / 10));
@@ -316,7 +316,7 @@ static bool switch_mind_class(PlayerType *player_ptr, cm_type *cm_ptr)
         cm_ptr->cast = cast_ninja_spell(player_ptr, i2enum<MindNinjaType>(cm_ptr->n));
         return true;
     default:
-        msg_format(_("謎の能力:%d, %d", "Mystery power:%d, %d"), cm_ptr->use_mind, cm_ptr->n);
+        msg_format(_("謎の能力:%d, %d", "Mystery power:%d, %d"), enum2i(cm_ptr->use_mind), cm_ptr->n);
         return false;
     }
 }
@@ -359,7 +359,7 @@ static void mind_reflection(PlayerType *player_ptr, cm_type *cm_ptr)
     }
 
     player_ptr->csp = std::max(0, player_ptr->csp - cm_ptr->mana_cost);
-    msg_format(_("%sを集中しすぎて気を失ってしまった！", "You faint from the effort!"), cm_ptr->mind_explanation);
+    msg_print(_(format("%sを集中しすぎて気を失ってしまった！", cm_ptr->mind_explanation), "You faint from the effort!"));
     (void)BadStatusSetter(player_ptr).mod_paralysis(randint1(5 * oops + 1));
     if (randint0(100) >= 50) {
         return;
@@ -374,7 +374,7 @@ static void process_hard_concentration(PlayerType *player_ptr, cm_type *cm_ptr)
 {
     if ((cm_ptr->use_mind == MindKindType::BERSERKER) || (cm_ptr->use_mind == MindKindType::NINJUTSU)) {
         take_hit(player_ptr, DAMAGE_USELIFE, cm_ptr->mana_cost, _("過度の集中", "concentrating too hard"));
-        player_ptr->redraw |= PR_HP;
+        RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::HP);
         return;
     }
 
@@ -425,9 +425,13 @@ void do_cmd_mind(PlayerType *player_ptr)
 
     mind_turn_passing(player_ptr, cm_ptr);
     process_hard_concentration(player_ptr, cm_ptr);
-    player_ptr->redraw |= PR_MANA;
-    player_ptr->window_flags |= PW_PLAYER;
-    player_ptr->window_flags |= PW_SPELL;
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    rfu.set_flag(MainWindowRedrawingFlag::MP);
+    static constexpr auto flags = {
+        SubWindowRedrawingFlag::PLAYER,
+        SubWindowRedrawingFlag::SPELL,
+    };
+    rfu.set_flags(flags);
 }
 
 static MindKindType decide_use_mind_browse(PlayerType *player_ptr)
@@ -454,7 +458,6 @@ static MindKindType decide_use_mind_browse(PlayerType *player_ptr)
 void do_cmd_mind_browse(PlayerType *player_ptr)
 {
     SPELL_IDX n = 0;
-    char temp[62 * 5];
     MindKindType use_mind = decide_use_mind_browse(player_ptr);
     screen_save();
     while (true) {
@@ -463,17 +466,13 @@ void do_cmd_mind_browse(PlayerType *player_ptr)
             return;
         }
 
-        term_erase(12, 21, 255);
-        term_erase(12, 20, 255);
-        term_erase(12, 19, 255);
-        term_erase(12, 18, 255);
-        term_erase(12, 17, 255);
-        term_erase(12, 16, 255);
-        shape_buffer(mind_tips[(int)use_mind][n], 62, temp, sizeof(temp));
-        for (int j = 0, line = 17; temp[j]; j += (1 + strlen(&temp[j]))) {
-            prt(&temp[j], line, 15);
-            line++;
-        }
+        term_erase(12, 21);
+        term_erase(12, 20);
+        term_erase(12, 19);
+        term_erase(12, 18);
+        term_erase(12, 17);
+        term_erase(12, 16);
+        display_wrap_around(mind_tips[enum2i(use_mind)][n], 62, 17, 15);
 
         switch (use_mind) {
         case MindKindType::MIRROR_MASTER:

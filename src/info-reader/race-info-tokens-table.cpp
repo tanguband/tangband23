@@ -1,7 +1,8 @@
-﻿#include "info-reader/race-info-tokens-table.h"
+#include "info-reader/race-info-tokens-table.h"
 #include "monster-attack/monster-attack-effect.h"
 #include "monster-attack/monster-attack-table.h"
 #include "monster-race/race-ability-flags.h"
+#include "monster-race/race-brightness-flags.h"
 #include "monster-race/race-drop-flags.h"
 #include "monster-race/race-feature-flags.h"
 #include "monster-race/race-kind-flags.h"
@@ -122,18 +123,6 @@ const std::unordered_map<std::string_view, race_flags2> r_info_flags2 = {
 };
 
 /*!
- * モンスター特性トークンの定義3 /
- * Monster race flags
- */
-const std::unordered_map<std::string_view, race_flags3> r_info_flags3 = {
-    { "FLAGS3_XX10", RF3_XX10 },
-    { "NO_FEAR", RF3_NO_FEAR },
-    { "NO_STUN", RF3_NO_STUN },
-    { "NO_CONF", RF3_NO_CONF },
-    { "NO_SLEEP", RF3_NO_SLEEP }
-};
-
-/*!
  * モンスター特性トークン (発動型能力) /
  * Monster race flags
  */
@@ -185,6 +174,7 @@ const std::unordered_map<std::string_view, MonsterAbilityType> r_info_ability_fl
 	{"BA_DARK", MonsterAbilityType::BA_DARK },
 	{"BA_VOID", MonsterAbilityType::BA_VOID },
 	{"BA_ABYSS", MonsterAbilityType::BA_ABYSS },
+	{"BA_METEOR", MonsterAbilityType::BA_METEOR },
 	{"DRAIN_MANA", MonsterAbilityType::DRAIN_MANA },
 	{"MIND_BLAST", MonsterAbilityType::MIND_BLAST },
 	{"BRAIN_SMASH", MonsterAbilityType::BRAIN_SMASH },
@@ -204,6 +194,7 @@ const std::unordered_map<std::string_view, MonsterAbilityType> r_info_ability_fl
 	{"BO_ICEE", MonsterAbilityType::BO_ICEE },
 	{"BO_VOID", MonsterAbilityType::BO_VOID },
 	{"BO_ABYSS", MonsterAbilityType::BO_ABYSS },
+	{"BO_METEOR", MonsterAbilityType::BO_METEOR },
 	{"MISSILE", MonsterAbilityType::MISSILE },
 	{"SCARE", MonsterAbilityType::SCARE },
 	{"BLIND", MonsterAbilityType::BLIND },
@@ -243,6 +234,7 @@ const std::unordered_map<std::string_view, MonsterAbilityType> r_info_ability_fl
 	{"S_HI_DRAGON", MonsterAbilityType::S_HI_DRAGON },
 	{"S_AMBERITES", MonsterAbilityType::S_AMBERITES },
 	{"S_UNIQUE", MonsterAbilityType::S_UNIQUE },
+	{"S_DEAD_UNIQUE", MonsterAbilityType::S_DEAD_UNIQUE },
 };
 /* clang-format on */
 
@@ -255,16 +247,8 @@ const std::unordered_map<std::string_view, race_flags7> r_info_flags7 = {
     { "UNIQUE2", RF7_UNIQUE2 },
     { "RIDING", RF7_RIDING },
     { "KAGE", RF7_KAGE },
-    { "HAS_LITE_1", RF7_HAS_LITE_1 },
-    { "SELF_LITE_1", RF7_SELF_LITE_1 },
-    { "HAS_LITE_2", RF7_HAS_LITE_2 },
-    { "SELF_LITE_2", RF7_SELF_LITE_2 },
     { "CHAMELEON", RF7_CHAMELEON },
     { "TANUKI", RF7_TANUKI },
-    { "HAS_DARK_1", RF7_HAS_DARK_1 },
-    { "SELF_DARK_1", RF7_SELF_DARK_1 },
-    { "HAS_DARK_2", RF7_HAS_DARK_2 },
-    { "SELF_DARK_2", RF7_SELF_DARK_2 },
 };
 
 /*!
@@ -331,6 +315,12 @@ const std::unordered_map<std::string_view, MonsterResistanceType> r_info_flagsr 
     { "RES_ABYSS", MonsterResistanceType::RESIST_ABYSS },
     { "HURT_VOID", MonsterResistanceType::HURT_VOID_MAGIC },
     { "RES_VOID", MonsterResistanceType::RESIST_VOID_MAGIC },
+    { "HURT_METEOR", MonsterResistanceType::HURT_METEOR },
+    { "RES_METEOR", MonsterResistanceType::RESIST_METEOR },
+    { "NO_FEAR", MonsterResistanceType::NO_FEAR },
+    { "NO_STUN", MonsterResistanceType::NO_STUN },
+    { "NO_CONF", MonsterResistanceType::NO_CONF },
+    { "NO_SLEEP", MonsterResistanceType::NO_SLEEP }
 };
 
 const std::unordered_map<std::string_view, MonsterAuraType> r_info_aura_flags = {
@@ -452,4 +442,15 @@ const std::unordered_map<std::string_view, MonsterSpeakType> r_info_speak_flags 
     { "SPEAK_FRIEND", MonsterSpeakType::SPEAK_FRIEND },
     { "SPEAK_DEATH", MonsterSpeakType::SPEAK_DEATH },
     { "SPEAK_SPAWN", MonsterSpeakType::SPEAK_SPAWN },
+};
+
+const std::unordered_map<std::string_view, MonsterBrightnessType> r_info_brightness_flags = {
+    { "HAS_LITE_1", MonsterBrightnessType::HAS_LITE_1 },
+    { "SELF_LITE_1", MonsterBrightnessType::SELF_LITE_1 },
+    { "HAS_LITE_2", MonsterBrightnessType::HAS_LITE_2 },
+    { "SELF_LITE_2", MonsterBrightnessType::SELF_LITE_2 },
+    { "HAS_DARK_1", MonsterBrightnessType::HAS_DARK_1 },
+    { "SELF_DARK_1", MonsterBrightnessType::SELF_DARK_1 },
+    { "HAS_DARK_2", MonsterBrightnessType::HAS_DARK_2 },
+    { "SELF_DARK_2", MonsterBrightnessType::SELF_DARK_2 },
 };

@@ -1,4 +1,4 @@
-﻿/* File: main-gcu.c */
+/* File: main-gcu.c */
 
 /*
  * Copyright (c) 1997 Ben Harrison, and others
@@ -218,10 +218,6 @@ struct term_data {
 /* Max number of windows on screen */
 #define MAX_TERM_DATA 8
 
-/* Minimum main term size */
-#define MIN_TERM0_LINES 24
-#define MIN_TERM0_COLS 80
-
 /* Information about our windows */
 static term_data data[MAX_TERM_DATA];
 
@@ -295,7 +291,7 @@ static term_data data[MAX_TERM_DATA];
 /* #define nonl() */
 /* #define nl() */
 
-static concptr ANGBAND_DIR_XTRA_SOUND;
+static std::filesystem::path ANGBAND_DIR_XTRA_SOUND;
 
 /*
  * todo 有効活用されていない疑惑
@@ -591,26 +587,17 @@ static bool check_file(concptr s)
  */
 static bool init_sound(void)
 {
-    /* Initialize once */
     if (can_use_sound) {
         return can_use_sound;
     }
 
-    int i;
-    char wav[128];
-    char buf[1024];
-
-    /* Prepare the sounds */
-    for (i = 1; i < SOUND_MAX; i++) {
-        /* Extract name of sound file */
-        sprintf(wav, "%s.wav", angband_sound_name[i]);
-
-        /* Access the sound */
-        path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_SOUND, wav);
-
-        /* Save the sound filename, if it exists */
-        if (check_file(buf)) {
-            sound_file[i] = string_make(buf);
+    for (auto i = 1; i < SOUND_MAX; i++) {
+        std::string wav = angband_sound_name[i];
+        wav.append(".wav");
+        const auto &path = path_build(ANGBAND_DIR_XTRA_SOUND, wav);
+        const auto &filename = path.string();
+        if (check_file(filename.data())) {
+            sound_file[i] = string_make(filename.data());
         }
     }
 
@@ -875,8 +862,6 @@ static errr game_term_xtra_gcu_event(int v)
  */
 static errr game_term_xtra_gcu_sound(int v)
 {
-    char buf[1024];
-
     /* Sound disabled */
     if (!use_sound) {
         return 1;
@@ -892,11 +877,9 @@ static errr game_term_xtra_gcu_sound(int v)
         return 1;
     }
 
-    sprintf(buf, "./gcusound.sh %s\n", sound_file[v]);
-
-    return system(buf) < 0;
-
-    return 0;
+    std::string buf = "./gcusound.sh ";
+    buf.append(sound_file[v]).append("\n");
+    return system(buf.data()) < 0;
 }
 
 static int scale_color(int i, int j, int scale)
@@ -1252,10 +1235,7 @@ static void hook_quit(concptr str)
  */
 errr init_gcu(int argc, char *argv[])
 {
-    int i;
-
     int num_term = 4, next_win = 0;
-    char path[1024];
 
     /* Unused */
     (void)argc;
@@ -1263,37 +1243,23 @@ errr init_gcu(int argc, char *argv[])
 
     setlocale(LC_ALL, "");
 
-    /* Build the "sound" path */
-    path_build(path, sizeof(path), ANGBAND_DIR_XTRA, "sound");
-
-    /* Allocate the path */
-    ANGBAND_DIR_XTRA_SOUND = string_make(path);
-
-    /* Extract the normal keymap */
+    ANGBAND_DIR_XTRA_SOUND = path_build(ANGBAND_DIR_XTRA, "sound");
     keymap_norm_prepare();
-
-    bool nobigscreen = false;
-
-    /* Parse args */
-    for (i = 1; i < argc; i++) {
+    auto nobigscreen = false;
+    for (auto i = 1; i < argc; i++) {
         if (prefix(argv[i], "-o")) {
             nobigscreen = true;
         }
     }
 
-    /* Initialize for others systems */
     if (initscr() == (WINDOW *)ERR) {
         return -1;
     }
 
-    /* Activate hooks */
     quit_aux = hook_quit;
     core_aux = hook_quit;
-
-    /* Hack -- Require large screen, or Quit with message */
-    i = ((LINES < 24) || (COLS < 80));
-    if (i) {
-        quit_fmt("%s needs an 80x24 'curses' screen", std::string(VARIANT_NAME).data());
+    if ((LINES < MAIN_TERM_MIN_ROWS) || (COLS < MAIN_TERM_MIN_COLS)) {
+        quit_fmt("%s needs an %dx%d 'curses' screen", std::string(VARIANT_NAME).data(), MAIN_TERM_MIN_COLS, MAIN_TERM_MIN_ROWS);
     }
 
 #ifdef A_COLOR
@@ -1311,7 +1277,7 @@ errr init_gcu(int argc, char *argv[])
     /* Attempt to use customized colors */
     if (can_fix_color) {
         /* Prepare the color pairs */
-        for (i = 1; i <= 15; i++) {
+        for (auto i = 1; i <= 15; i++) {
             if (init_pair(i, i, 0) == ERR) {
                 quit("Color pair init failed");
             }
@@ -1399,43 +1365,43 @@ errr init_gcu(int argc, char *argv[])
     /*** Now prepare the term(s) ***/
     if (nobigscreen) {
         /* Create several terms */
-        for (i = 0; i < num_term; i++) {
+        for (auto i = 0; i < num_term; i++) {
             int rows, cols, y, x;
 
             /* Decide on size and position */
             switch (i) {
             /* Upper left */
             case 0: {
-                rows = 24;
-                cols = 80;
+                rows = TERM_DEFAULT_ROWS;
+                cols = TERM_DEFAULT_COLS;
                 y = x = 0;
                 break;
             }
 
             /* Lower left */
             case 1: {
-                rows = LINES - 25;
-                cols = 80;
-                y = 25;
+                rows = LINES - TERM_DEFAULT_ROWS - 1;
+                cols = TERM_DEFAULT_COLS;
+                y = TERM_DEFAULT_ROWS + 1;
                 x = 0;
                 break;
             }
 
             /* Upper right */
             case 2: {
-                rows = 24;
-                cols = COLS - 81;
+                rows = TERM_DEFAULT_ROWS;
+                cols = COLS - TERM_DEFAULT_COLS - 1;
                 y = 0;
-                x = 81;
+                x = TERM_DEFAULT_COLS + 1;
                 break;
             }
 
             /* Lower right */
             case 3: {
-                rows = LINES - 25;
-                cols = COLS - 81;
-                y = 25;
-                x = 81;
+                rows = LINES - TERM_DEFAULT_ROWS - 1;
+                cols = COLS - TERM_DEFAULT_COLS - 1;
+                y = TERM_DEFAULT_ROWS + 1;
+                x = TERM_DEFAULT_COLS + 1;
                 break;
             }
 
@@ -1489,7 +1455,7 @@ errr init_gcu(int argc, char *argv[])
         int next_term = 1;
         int term_ct = 1;
 
-        for (i = 1; i < argc; i++) {
+        for (auto i = 1; i < argc; i++) {
             if (streq(argv[i], "-spacer")) {
                 i++;
                 if (i >= argc) {
@@ -1503,13 +1469,13 @@ errr init_gcu(int argc, char *argv[])
 
                 i++;
                 if (i >= argc) {
-                    quit(format("Missing size specifier for -%s", left ? "left" : "right"));
+                    quit_fmt("Missing size specifier for -%s", left ? "left" : "right");
                 }
 
                 arg = argv[i];
                 tmp = strchr(arg, 'x');
                 if (!tmp) {
-                    quit(format("Expected something like -%s 60x27,* for two %s hand terminals of 60 columns, the first 27 lines and the second whatever is left.", left ? "left" : "right", left ? "left" : "right"));
+                    quit_fmt("Expected something like -%s 60x27,* for two %s hand terminals of 60 columns, the first 27 lines and the second whatever is left.", left ? "left" : "right", left ? "left" : "right");
                 }
                 cx = atoi(arg);
                 remaining.cx -= cx;
@@ -1534,11 +1500,11 @@ errr init_gcu(int argc, char *argv[])
                         cy = remaining.y + remaining.cy - y;
                     }
                     if (next_term >= MAX_TERM_DATA) {
-                        quit(format("Too many terminals. Only %d are allowed.", MAX_TERM_DATA));
+                        quit_fmt("Too many terminals. Only %d are allowed.", MAX_TERM_DATA);
                     }
                     if (cy <= 0) {
-                        quit(format("Out of bounds in -%s: %d is too large (%d rows max for this strip)",
-                            left ? "left" : "right", cys[j], remaining.cy));
+                        quit_fmt("Out of bounds in -%s: %d is too large (%d rows max for this strip)",
+                            left ? "left" : "right", cys[j], remaining.cy);
                     }
                     data[next_term++].r = rect(x, y, cx, cy);
                     y += cy + spacer_cy;
@@ -1551,13 +1517,13 @@ errr init_gcu(int argc, char *argv[])
 
                 i++;
                 if (i >= argc) {
-                    quit(format("Missing size specifier for -%s", top ? "top" : "bottom"));
+                    quit_fmt("Missing size specifier for -%s", top ? "top" : "bottom");
                 }
 
                 arg = argv[i];
                 tmp = strchr(arg, 'x');
                 if (!tmp) {
-                    quit(format("Expected something like -%s *x7 for a single %s terminal of 7 lines using as many columns as are available.", top ? "top" : "bottom", top ? "top" : "bottom"));
+                    quit_fmt("Expected something like -%s *x7 for a single %s terminal of 7 lines using as many columns as are available.", top ? "top" : "bottom", top ? "top" : "bottom");
                 }
                 tmp++;
                 cy = atoi(tmp);
@@ -1584,11 +1550,11 @@ errr init_gcu(int argc, char *argv[])
                         cx = remaining.x + remaining.cx - x;
                     }
                     if (next_term >= MAX_TERM_DATA) {
-                        quit(format("Too many terminals. Only %d are allowed.", MAX_TERM_DATA));
+                        quit_fmt("Too many terminals. Only %d are allowed.", MAX_TERM_DATA);
                     }
                     if (cx <= 0) {
-                        quit(format("Out of bounds in -%s: %d is too large (%d cols max for this strip)",
-                            top ? "top" : "bottom", cxs[j], remaining.cx));
+                        quit_fmt("Out of bounds in -%s: %d is too large (%d cols max for this strip)",
+                            top ? "top" : "bottom", cxs[j], remaining.cx);
                     }
                     data[next_term++].r = rect(x, y, cx, cy);
                     x += cx + spacer_cx;
@@ -1598,8 +1564,8 @@ errr init_gcu(int argc, char *argv[])
         }
 
         /* Map Terminal */
-        if (remaining.cx < MIN_TERM0_COLS || remaining.cy < MIN_TERM0_LINES) {
-            quit_fmt("Failed: %s needs an %dx%d map screen, not %dx%d", std::string(VARIANT_NAME).data(), MIN_TERM0_COLS, MIN_TERM0_LINES, remaining.cx, remaining.cy);
+        if (remaining.cx < MAIN_TERM_MIN_COLS || remaining.cy < MAIN_TERM_MIN_ROWS) {
+            quit_fmt("Failed: %s needs an %dx%d map screen, not %dx%d", std::string(VARIANT_NAME).data(), MAIN_TERM_MIN_COLS, MAIN_TERM_MIN_ROWS, remaining.cx, remaining.cy);
         }
         data[0].r = remaining;
         term_data_init(&data[0]);

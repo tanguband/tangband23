@@ -1,8 +1,7 @@
-﻿#include "store/service-checker.h"
+#include "store/service-checker.h"
 #include "monster-race/monster-race.h"
 #include "monster-race/race-flags3.h"
 #include "object-enchant/tr-types.h"
-#include "object/object-flags.h"
 #include "object/object-value.h"
 #include "object/tval-types.h"
 #include "store/store-util.h"
@@ -23,8 +22,7 @@
  */
 static bool is_blessed_item(const ItemEntity *item_ptr)
 {
-    auto flgs = object_flags(item_ptr);
-    return flgs.has(TR_BLESSED);
+    return item_ptr->get_flags().has(TR_BLESSED);
 }
 
 static bool check_store_general(const ItemEntity &item)
@@ -287,7 +285,7 @@ static int mass_book_produce(const PRICE cost)
 static int mass_equipment_produce(const ItemEntity &item, const PRICE cost)
 {
     int size = 1;
-    if (item.is_artifact() || item.is_ego()) {
+    if (item.is_fixed_or_random_artifact() || item.is_ego()) {
         return size;
     }
 
@@ -447,7 +445,7 @@ void mass_produce(ItemEntity *o_ptr, StoreSaleType store_num)
     const auto cost = o_ptr->get_price();
     int size = switch_mass_production(*o_ptr, cost, store_num);
     auto discount = decide_discount_rate(cost);
-    if (o_ptr->art_name) {
+    if (o_ptr->is_random_artifact()) {
         discount = 0;
     }
 

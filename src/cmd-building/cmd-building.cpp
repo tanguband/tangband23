@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 町の施設処理 / Building commands
  * @date 2013/12/23
  * @author
@@ -17,8 +17,6 @@
 #include "cmd-building/cmd-inn.h"
 #include "cmd-io/cmd-dump.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/scores.h"
 #include "core/show-file.h"
 #include "core/special-internal-keys.h"
@@ -57,12 +55,15 @@
 #include "spell-kind/spells-perception.h"
 #include "spell-kind/spells-world.h"
 #include "spell/spells-status.h"
+#include "system/angband-system.h"
 #include "system/building-type-definition.h"
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
+#include "term/gameterm.h"
 #include "term/screen-processor.h"
 #include "util/bit-flags-calculator.h"
 #include "util/int-char-converter.h"
@@ -83,7 +84,7 @@ bool reinit_wilderness = false;
 static void town_history(PlayerType *player_ptr)
 {
     screen_save();
-    (void)show_file(player_ptr, true, _("jbldg.txt", "bldg.txt"), nullptr, 0, 0);
+    (void)show_file(player_ptr, true, _("jbldg.txt", "bldg.txt"), 0, 0);
     screen_load();
 }
 
@@ -106,13 +107,14 @@ static void bldg_process_command(PlayerType *player_ptr, building_type *bldg, in
     }
 
     /* action restrictions */
-    if (((bldg->action_restr[i] == 1) && !is_member(player_ptr, bldg)) || ((bldg->action_restr[i] == 2) && !is_owner(player_ptr, bldg))) {
+    const auto can_be_owner = is_owner(player_ptr, bldg);
+    if (((bldg->action_restr[i] == 1) && !is_member(player_ptr, bldg)) || ((bldg->action_restr[i] == 2) && !can_be_owner)) {
         msg_print(_("それを選択する権利はありません！", "You have no right to choose that!"));
         return;
     }
 
     auto bact = bldg->actions[i];
-    if ((bact != BACT_RECHARGE) && (((bldg->member_costs[i] > player_ptr->au) && is_owner(player_ptr, bldg)) || ((bldg->other_costs[i] > player_ptr->au) && !is_owner(player_ptr, bldg)))) {
+    if ((bact != BACT_RECHARGE) && (((bldg->member_costs[i] > player_ptr->au) && can_be_owner) || ((bldg->other_costs[i] > player_ptr->au) && !can_be_owner))) {
         msg_print(_("お金が足りません！", "You do not have the gold!"));
         return;
     }
@@ -177,7 +179,7 @@ static void bldg_process_command(PlayerType *player_ptr, building_type *bldg, in
         building_recharge_all(player_ptr);
         break;
     case BACT_IDENTS:
-        if (!get_check(_("持ち物を全て鑑定してよろしいですか？", "Do you pay to identify all your possession? "))) {
+        if (!input_check(_("持ち物を全て鑑定してよろしいですか？", "Do you pay to identify all your possession? "))) {
             break;
         }
         identify_pack(player_ptr);
@@ -210,8 +212,10 @@ static void bldg_process_command(PlayerType *player_ptr, building_type *bldg, in
         break;
 
     case BACT_TELEPORT_LEVEL:
+        screen_save();
         clear_bldg(4, 20);
         paid = free_level_recall(player_ptr);
+        screen_load();
         break;
 
     case BACT_LOSE_MUTATION: {
@@ -255,24 +259,24 @@ static void bldg_process_command(PlayerType *player_ptr, building_type *bldg, in
 
     case BACT_HEIKOUKA:
         msg_print(_("平衡化の儀式を行なった。", "You received an equalization ritual."));
-        set_virtue(player_ptr, V_COMPASSION, 0);
-        set_virtue(player_ptr, V_HONOUR, 0);
-        set_virtue(player_ptr, V_JUSTICE, 0);
-        set_virtue(player_ptr, V_SACRIFICE, 0);
-        set_virtue(player_ptr, V_KNOWLEDGE, 0);
-        set_virtue(player_ptr, V_FAITH, 0);
-        set_virtue(player_ptr, V_ENLIGHTEN, 0);
-        set_virtue(player_ptr, V_ENCHANT, 0);
-        set_virtue(player_ptr, V_CHANCE, 0);
-        set_virtue(player_ptr, V_NATURE, 0);
-        set_virtue(player_ptr, V_HARMONY, 0);
-        set_virtue(player_ptr, V_VITALITY, 0);
-        set_virtue(player_ptr, V_UNLIFE, 0);
-        set_virtue(player_ptr, V_PATIENCE, 0);
-        set_virtue(player_ptr, V_TEMPERANCE, 0);
-        set_virtue(player_ptr, V_DILIGENCE, 0);
-        set_virtue(player_ptr, V_VALOUR, 0);
-        set_virtue(player_ptr, V_INDIVIDUALISM, 0);
+        set_virtue(player_ptr, Virtue::COMPASSION, 0);
+        set_virtue(player_ptr, Virtue::HONOUR, 0);
+        set_virtue(player_ptr, Virtue::JUSTICE, 0);
+        set_virtue(player_ptr, Virtue::SACRIFICE, 0);
+        set_virtue(player_ptr, Virtue::KNOWLEDGE, 0);
+        set_virtue(player_ptr, Virtue::FAITH, 0);
+        set_virtue(player_ptr, Virtue::ENLIGHTEN, 0);
+        set_virtue(player_ptr, Virtue::ENCHANT, 0);
+        set_virtue(player_ptr, Virtue::CHANCE, 0);
+        set_virtue(player_ptr, Virtue::NATURE, 0);
+        set_virtue(player_ptr, Virtue::HARMONY, 0);
+        set_virtue(player_ptr, Virtue::VITALITY, 0);
+        set_virtue(player_ptr, Virtue::UNLIFE, 0);
+        set_virtue(player_ptr, Virtue::PATIENCE, 0);
+        set_virtue(player_ptr, Virtue::TEMPERANCE, 0);
+        set_virtue(player_ptr, Virtue::DILIGENCE, 0);
+        set_virtue(player_ptr, Virtue::VALOUR, 0);
+        set_virtue(player_ptr, Virtue::INDIVIDUALISM, 0);
         initialize_virtues(player_ptr);
         paid = true;
         break;
@@ -314,17 +318,21 @@ void do_cmd_building(PlayerType *player_ptr)
         return;
     }
 
+    TermCenteredOffsetSetter tcos(MAIN_TERM_MIN_COLS, MAIN_TERM_MIN_ROWS);
+
     int which = terrains_info[player_ptr->current_floor_ptr->grid_array[player_ptr->y][player_ptr->x].feat].subtype;
 
     building_type *bldg;
-    bldg = &building[which];
+    bldg = &buildings[which];
 
     reinit_wilderness = false;
 
     if ((which == 2) && (player_ptr->arena_number < 0)) {
         msg_print(_("「敗者に用はない。」", "'There's no place here for a LOSER like you!'"));
         return;
-    } else if ((which == 2) && player_ptr->current_floor_ptr->inside_arena) {
+    }
+
+    if ((which == 2) && player_ptr->current_floor_ptr->inside_arena) {
         if (!player_ptr->exit_bldg && player_ptr->current_floor_ptr->m_cnt > 0) {
             prt(_("ゲートは閉まっている。モンスターがあなたを待っている！", "The gates are closed.  The monster awaits!"), 0, 0);
         } else {
@@ -336,18 +344,20 @@ void do_cmd_building(PlayerType *player_ptr)
         }
 
         return;
-    } else if (player_ptr->phase_out) {
+    }
+
+    auto &system = AngbandSystem::get_instance();
+    if (system.is_phase_out()) {
         prepare_change_floor_mode(player_ptr, CFM_SAVE_FLOORS | CFM_NO_RETURN);
         player_ptr->leaving = true;
-        player_ptr->phase_out = false;
+        system.set_phase_out(false);
         command_new = SPECIAL_KEY_BUILDING;
         energy.reset_player_turn();
         return;
-    } else {
-        player_ptr->oldpy = player_ptr->y;
-        player_ptr->oldpx = player_ptr->x;
     }
 
+    player_ptr->oldpy = player_ptr->y;
+    player_ptr->oldpx = player_ptr->x;
     forget_lite(player_ptr->current_floor_ptr);
     forget_view(player_ptr->current_floor_ptr);
     w_ptr->character_icky_depth++;
@@ -372,7 +382,7 @@ void do_cmd_building(PlayerType *player_ptr)
         if (command == ESCAPE) {
             player_ptr->leave_bldg = true;
             player_ptr->current_floor_ptr->inside_arena = false;
-            player_ptr->phase_out = false;
+            system.set_phase_out(false);
             break;
         }
 
@@ -403,7 +413,25 @@ void do_cmd_building(PlayerType *player_ptr)
     w_ptr->character_icky_depth--;
     term_clear();
 
-    player_ptr->update |= (PU_VIEW | PU_MONSTERS | PU_BONUS | PU_LITE | PU_MON_LITE);
-    player_ptr->redraw |= (PR_BASIC | PR_EXTRA | PR_EQUIPPY | PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::VIEW,
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+        StatusRecalculatingFlag::BONUS,
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::MONSTER_LITE,
+    };
+    rfu.set_flags(flags_srf);
+    static constexpr auto flags_mwrf = {
+        MainWindowRedrawingFlag::BASIC,
+        MainWindowRedrawingFlag::EXTRA,
+        MainWindowRedrawingFlag::EQUIPPY,
+        MainWindowRedrawingFlag::MAP,
+    };
+    rfu.set_flags(flags_mwrf);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+    };
+    rfu.set_flags(flags_swrf);
 }

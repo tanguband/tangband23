@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief インベントリ関係のユーティリティ
  * @date 2020/07/02
  * @author Hourier
@@ -15,9 +15,10 @@
 #include "system/floor-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "util/bit-flags-calculator.h"
 #include "util/int-char-converter.h"
-#include "util/quarks.h"
 #include "util/string-processor.h"
+#include <sstream>
 
 /*!
  * @brief プレイヤーの所持/装備オブジェクトIDが指輪枠かを返す /
@@ -49,11 +50,11 @@ bool get_tag_floor(FloorType *floor_ptr, COMMAND_CODE *cp, char tag, FLOOR_IDX f
 {
     for (COMMAND_CODE i = 0; i < floor_num && i < 23; i++) {
         auto *o_ptr = &floor_ptr->o_list[floor_list[i]];
-        if (!o_ptr->inscription) {
+        if (!o_ptr->is_inscribed()) {
             continue;
         }
 
-        concptr s = angband_strchr(quark_str(o_ptr->inscription), '@');
+        auto s = angband_strchr(o_ptr->inscription->data(), '@');
         while (s) {
             if ((s[1] == command_cmd) && (s[2] == tag)) {
                 *cp = i;
@@ -70,11 +71,11 @@ bool get_tag_floor(FloorType *floor_ptr, COMMAND_CODE *cp, char tag, FLOOR_IDX f
 
     for (COMMAND_CODE i = 0; i < floor_num && i < 23; i++) {
         auto *o_ptr = &floor_ptr->o_list[floor_list[i]];
-        if (!o_ptr->inscription) {
+        if (!o_ptr->is_inscribed()) {
             continue;
         }
 
-        concptr s = angband_strchr(quark_str(o_ptr->inscription), '@');
+        auto s = angband_strchr(o_ptr->inscription->data(), '@');
         while (s) {
             if (s[1] == tag) {
                 *cp = i;
@@ -124,7 +125,7 @@ bool get_tag(PlayerType *player_ptr, COMMAND_CODE *cp, char tag, BIT_FLAGS mode,
 
     for (COMMAND_CODE i = start; i <= end; i++) {
         auto *o_ptr = &player_ptr->inventory_list[i];
-        if ((o_ptr->bi_id == 0) || (o_ptr->inscription == 0)) {
+        if (!o_ptr->is_valid() || !o_ptr->is_inscribed()) {
             continue;
         }
 
@@ -132,7 +133,7 @@ bool get_tag(PlayerType *player_ptr, COMMAND_CODE *cp, char tag, BIT_FLAGS mode,
             continue;
         }
 
-        concptr s = angband_strchr(quark_str(o_ptr->inscription), '@');
+        auto s = angband_strchr(o_ptr->inscription->data(), '@');
         while (s) {
             if ((s[1] == command_cmd) && (s[2] == tag)) {
                 *cp = i;
@@ -149,7 +150,7 @@ bool get_tag(PlayerType *player_ptr, COMMAND_CODE *cp, char tag, BIT_FLAGS mode,
 
     for (COMMAND_CODE i = start; i <= end; i++) {
         auto *o_ptr = &player_ptr->inventory_list[i];
-        if ((o_ptr->bi_id == 0) || (o_ptr->inscription == 0)) {
+        if (!o_ptr->is_valid() || !o_ptr->is_inscribed()) {
             continue;
         }
 
@@ -157,7 +158,7 @@ bool get_tag(PlayerType *player_ptr, COMMAND_CODE *cp, char tag, BIT_FLAGS mode,
             continue;
         }
 
-        concptr s = angband_strchr(quark_str(o_ptr->inscription), '@');
+        auto s = angband_strchr(o_ptr->inscription->data(), '@');
         while (s) {
             if (s[1] == tag) {
                 *cp = i;
@@ -191,34 +192,32 @@ bool get_item_okay(PlayerType *player_ptr, OBJECT_IDX i, const ItemTester &item_
 }
 
 /*!
- * @brief 選択したアイテムの確認処理のメインルーチン /
+ * @brief 選択したアイテムの確認処理のメインルーチン
  * @param player_ptr プレイヤーへの参照ポインタ
- * @param item 選択アイテムID
+ * @param i_idx 選択アイテムID
  * @return 確認がYesならTRUEを返す。
- * @details The item can be negative to mean "item on floor".
- * Hack -- allow user to "prevent" certain choices
  */
-bool get_item_allow(PlayerType *player_ptr, INVENTORY_IDX item)
+bool get_item_allow(PlayerType *player_ptr, INVENTORY_IDX i_idx)
 {
     if (!command_cmd) {
         return true;
     }
 
     ItemEntity *o_ptr;
-    if (item >= 0) {
-        o_ptr = &player_ptr->inventory_list[item];
+    if (i_idx >= 0) {
+        o_ptr = &player_ptr->inventory_list[i_idx];
     } else {
-        o_ptr = &player_ptr->current_floor_ptr->o_list[0 - item];
+        o_ptr = &player_ptr->current_floor_ptr->o_list[0 - i_idx];
     }
 
-    if (!o_ptr->inscription) {
+    if (!o_ptr->is_inscribed()) {
         return true;
     }
 
-    concptr s = angband_strchr(quark_str(o_ptr->inscription), '!');
+    auto s = angband_strchr(o_ptr->inscription->data(), '!');
     while (s) {
         if ((s[1] == command_cmd) || (s[1] == '*')) {
-            if (!verify(player_ptr, _("本当に", "Really try"), item)) {
+            if (!verify(player_ptr, _("本当に", "Really try"), i_idx)) {
                 return false;
             }
         }
@@ -266,7 +265,7 @@ INVENTORY_IDX label_to_inventory(PlayerType *player_ptr, int c)
 {
     INVENTORY_IDX i = (INVENTORY_IDX)(islower(c) ? A2I(c) : -1);
 
-    if ((i < 0) || (i > INVEN_PACK) || (player_ptr->inventory_list[i].bi_id == 0)) {
+    if ((i < 0) || (i > INVEN_PACK) || !player_ptr->inventory_list[i].is_valid()) {
         return -1;
     }
 
@@ -274,28 +273,29 @@ INVENTORY_IDX label_to_inventory(PlayerType *player_ptr, int c)
 }
 
 /*!
- * @brief 選択したアイテムの確認処理の補助 /
- * Verify the choice of an item.
+ * @brief 選択したアイテムの確認処理の補助
  * @param player_ptr プレイヤーへの参照ポインタ
  * @param prompt メッセージ表示の一部
- * @param item 選択アイテムID
+ * @param i_idx 選択アイテムID
  * @return 確認がYesならTRUEを返す。
- * @details The item can be negative to mean "item on floor".
  */
-bool verify(PlayerType *player_ptr, concptr prompt, INVENTORY_IDX item)
+bool verify(PlayerType *player_ptr, concptr prompt, INVENTORY_IDX i_idx)
 {
-    GAME_TEXT o_name[MAX_NLEN];
-    char out_val[MAX_NLEN + 20];
     ItemEntity *o_ptr;
-    if (item >= 0) {
-        o_ptr = &player_ptr->inventory_list[item];
+    if (i_idx >= 0) {
+        o_ptr = &player_ptr->inventory_list[i_idx];
     } else {
-        o_ptr = &player_ptr->current_floor_ptr->o_list[0 - item];
+        o_ptr = &player_ptr->current_floor_ptr->o_list[0 - i_idx];
     }
 
-    describe_flavor(player_ptr, o_name, o_ptr, 0);
-    (void)sprintf(out_val, _("%s%sですか? ", "%s %s? "), prompt, o_name);
-    return get_check(out_val);
+    const auto item_name = describe_flavor(player_ptr, o_ptr, 0);
+    std::stringstream ss;
+    ss << prompt;
+#ifndef JP
+    ss << ' ';
+#endif
+    ss << item_name << _("ですか? ", "? ");
+    return input_check(ss.str());
 }
 
 /*!
@@ -308,7 +308,7 @@ bool verify(PlayerType *player_ptr, concptr prompt, INVENTORY_IDX item)
 void prepare_label_string(PlayerType *player_ptr, char *label, BIT_FLAGS mode, const ItemTester &item_tester)
 {
     concptr alphabet_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    int offset = (mode == USE_EQUIP) ? INVEN_MAIN_HAND : 0;
+    int offset = match_bits(mode, USE_EQUIP, USE_EQUIP) ? INVEN_MAIN_HAND : 0;
     strcpy(label, alphabet_chars);
     for (int i = 0; i < 52; i++) {
         COMMAND_CODE index;

@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief セーブファイル読み込み処理 / Purpose: support for loading savefiles -BEN-
  * @date 2014/07/07
  * @author
@@ -267,8 +267,8 @@ static errr exe_reading_savefile(PlayerType *player_ptr)
  */
 static errr rd_savefile(PlayerType *player_ptr)
 {
-    safe_setuid_grab(player_ptr);
-    loading_savefile = angband_fopen(savefile, "rb");
+    safe_setuid_grab();
+    loading_savefile = angband_fopen(savefile, FileOpenMode::READ, true);
     safe_setuid_drop();
     if (!loading_savefile) {
         return -1;
@@ -309,7 +309,7 @@ static bool on_read_save_data_not_supported(PlayerType *player_ptr, bool *new_ga
     auto mes_check_restart = _("最初からプレイを始めますか？(モンスターの思い出は引き継がれます)", "Play from the beginning? (Monster recalls will be inherited.) ");
     msg_print(mes_not_play);
     msg_print(nullptr);
-    if (!get_check(mes_check_restart)) {
+    if (!input_check(mes_check_restart)) {
         msg_print(_("ゲームを終了します。", "Exit the game."));
         msg_print(nullptr);
         return false;
@@ -346,12 +346,13 @@ bool load_savedata(PlayerType *player_ptr, bool *new_game)
     auto what = "generic";
     w_ptr->game_turn = 0;
     player_ptr->is_dead = false;
-    if (!savefile[0]) {
+    if (savefile.empty()) {
         return true;
     }
 
+    const auto &savefile_str = savefile.string();
 #ifndef WINDOWS
-    if (access(savefile, 0) < 0) {
+    if (access(savefile_str.data(), 0) < 0) {
         msg_print(_("セーブファイルがありません。", "Savefile does not exist."));
         msg_print(nullptr);
         *new_game = true;
@@ -410,7 +411,7 @@ bool load_savedata(PlayerType *player_ptr, bool *new_game)
     }
 
     if (err) {
-        msg_format("%s: %s", what, savefile);
+        msg_format("%s: %s", what, savefile_str.data());
         msg_print(nullptr);
         return false;
     }
@@ -440,7 +441,7 @@ bool load_savedata(PlayerType *player_ptr, bool *new_game)
     }
 
     if (err) {
-        msg_format(_("エラー(%s)がバージョン%d.%d.%d.%d 用セーブファイル読み込み中に発生。", "Error (%s) reading %d.%d.%d.% savefile."), what,
+        msg_format(_("エラー(%s)がバージョン %d.%d.%d.%d 用セーブファイル読み込み中に発生。", "Error (%s) reading %d.%d.%d.%d savefile."), what,
             w_ptr->h_ver_major, w_ptr->h_ver_minor, w_ptr->h_ver_patch, w_ptr->h_ver_extra);
         msg_print(nullptr);
         return false;

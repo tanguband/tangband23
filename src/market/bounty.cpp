@@ -1,9 +1,8 @@
-﻿#include "market/bounty.h"
+#include "market/bounty.h"
 #include "autopick/autopick.h"
 #include "avatar/avatar.h"
 #include "cmd-building/cmd-building.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
 #include "core/stuff-handler.h"
 #include "flavor/flavor-describer.h"
 #include "game-option/cheat-options.h"
@@ -12,6 +11,7 @@
 #include "io/input-key-acceptor.h"
 #include "market/bounty-prize-table.h"
 #include "market/building-util.h"
+#include "monster-floor/place-monster-types.h"
 #include "monster-race/monster-race-hook.h"
 #include "monster-race/monster-race.h"
 #include "monster-race/race-flags1.h"
@@ -32,8 +32,10 @@
 #include "system/item-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "util/bit-flags-calculator.h"
 #include "view/display-messages.h"
 #include "world/world.h"
@@ -46,104 +48,103 @@
  */
 bool exchange_cash(PlayerType *player_ptr)
 {
-    bool change = false;
-    GAME_TEXT o_name[MAX_NLEN];
-    ItemEntity *o_ptr;
-
+    auto change = false;
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     for (INVENTORY_IDX i = 0; i <= INVEN_SUB_HAND; i++) {
-        o_ptr = &player_ptr->inventory_list[i];
-        const auto r_idx_of_item = static_cast<MonsterRaceId>(o_ptr->pval);
-
-        if ((o_ptr->bi_key.tval() == ItemKindType::CAPTURE) && (r_idx_of_item == MonsterRaceId::TSUCHINOKO)) {
-            char buf[MAX_NLEN + 32];
-            describe_flavor(player_ptr, o_name, o_ptr, 0);
-            sprintf(buf, _("%s を換金しますか？", "Convert %s into money? "), o_name);
-            if (get_check(buf)) {
-                msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)(1000000L * o_ptr->number));
-                player_ptr->au += 1000000L * o_ptr->number;
-                player_ptr->redraw |= (PR_GOLD);
-                vary_item(player_ptr, i, -o_ptr->number);
-            }
-
-            change = true;
+        const auto item_ptr = &player_ptr->inventory_list[i];
+        const auto r_idx_of_item = static_cast<MonsterRaceId>(item_ptr->pval);
+        if ((item_ptr->bi_key.tval() != ItemKindType::CAPTURE) || (r_idx_of_item != MonsterRaceId::TSUCHINOKO)) {
+            continue;
         }
+
+        change = true;
+        const auto item_name = describe_flavor(player_ptr, item_ptr, 0);
+        if (!input_check(format(_("%s を換金しますか？", "Convert %s into money? "), item_name.data()))) {
+            continue;
+        }
+
+        msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)(1000000L * item_ptr->number));
+        player_ptr->au += 1000000L * item_ptr->number;
+        rfu.set_flag(MainWindowRedrawingFlag::GOLD);
+        vary_item(player_ptr, i, -item_ptr->number);
     }
 
     for (INVENTORY_IDX i = 0; i < INVEN_PACK; i++) {
-        o_ptr = &player_ptr->inventory_list[i];
-        const auto r_idx_of_item = static_cast<MonsterRaceId>(o_ptr->pval);
-
-        if (o_ptr->bi_key == BaseitemKey(ItemKindType::CORPSE, SV_CORPSE) && (r_idx_of_item == MonsterRaceId::TSUCHINOKO)) {
-            char buf[MAX_NLEN + 32];
-            describe_flavor(player_ptr, o_name, o_ptr, 0);
-            sprintf(buf, _("%s を換金しますか？", "Convert %s into money? "), o_name);
-            if (get_check(buf)) {
-                msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)(200000L * o_ptr->number));
-                player_ptr->au += 200000L * o_ptr->number;
-                player_ptr->redraw |= (PR_GOLD);
-                vary_item(player_ptr, i, -o_ptr->number);
-            }
-
-            change = true;
+        const auto item_ptr = &player_ptr->inventory_list[i];
+        const auto r_idx_of_item = static_cast<MonsterRaceId>(item_ptr->pval);
+        if ((item_ptr->bi_key != BaseitemKey(ItemKindType::CORPSE, SV_CORPSE)) || (r_idx_of_item != MonsterRaceId::TSUCHINOKO)) {
+            continue;
         }
+
+        change = true;
+        const auto item_name = describe_flavor(player_ptr, item_ptr, 0);
+        if (!input_check(format(_("%s を換金しますか？", "Convert %s into money? "), item_name.data()))) {
+            continue;
+        }
+
+        msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)(200000L * item_ptr->number));
+        player_ptr->au += 200000L * item_ptr->number;
+        rfu.set_flag(MainWindowRedrawingFlag::GOLD);
+        vary_item(player_ptr, i, -item_ptr->number);
     }
 
     for (INVENTORY_IDX i = 0; i < INVEN_PACK; i++) {
-        o_ptr = &player_ptr->inventory_list[i];
-        const auto r_idx_of_item = static_cast<MonsterRaceId>(o_ptr->pval);
-
-        if (o_ptr->bi_key == BaseitemKey(ItemKindType::CORPSE, SV_SKELETON) && (r_idx_of_item == MonsterRaceId::TSUCHINOKO)) {
-            char buf[MAX_NLEN + 32];
-            describe_flavor(player_ptr, o_name, o_ptr, 0);
-            sprintf(buf, _("%s を換金しますか？", "Convert %s into money? "), o_name);
-            if (get_check(buf)) {
-                msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)(100000L * o_ptr->number));
-                player_ptr->au += 100000L * o_ptr->number;
-                player_ptr->redraw |= (PR_GOLD);
-                vary_item(player_ptr, i, -o_ptr->number);
-            }
-
-            change = true;
+        const auto item_ptr = &player_ptr->inventory_list[i];
+        const auto r_idx_of_item = static_cast<MonsterRaceId>(item_ptr->pval);
+        if ((item_ptr->bi_key != BaseitemKey(ItemKindType::CORPSE, SV_SKELETON)) || (r_idx_of_item != MonsterRaceId::TSUCHINOKO)) {
+            continue;
         }
+
+        change = true;
+        const auto item_name = describe_flavor(player_ptr, item_ptr, 0);
+        if (!input_check(format(_("%s を換金しますか？", "Convert %s into money? "), item_name.data()))) {
+            continue;
+        }
+
+        msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)(100000L * item_ptr->number));
+        player_ptr->au += 100000L * item_ptr->number;
+        rfu.set_flag(MainWindowRedrawingFlag::GOLD);
+        vary_item(player_ptr, i, -item_ptr->number);
     }
 
     for (INVENTORY_IDX i = 0; i < INVEN_PACK; i++) {
-        o_ptr = &player_ptr->inventory_list[i];
-        const auto r_idx_of_item = static_cast<MonsterRaceId>(o_ptr->pval);
-
-        if (o_ptr->bi_key == BaseitemKey(ItemKindType::CORPSE, SV_CORPSE) && (streq(monraces_info[r_idx_of_item].name.data(), monraces_info[w_ptr->today_mon].name.data()))) {
-            char buf[MAX_NLEN + 32];
-            describe_flavor(player_ptr, o_name, o_ptr, 0);
-            sprintf(buf, _("%s を換金しますか？", "Convert %s into money? "), o_name);
-            if (get_check(buf)) {
-                msg_format(
-                    _("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)((monraces_info[w_ptr->today_mon].level * 50 + 100) * o_ptr->number));
-                player_ptr->au += (monraces_info[w_ptr->today_mon].level * 50 + 100) * o_ptr->number;
-                player_ptr->redraw |= (PR_GOLD);
-                vary_item(player_ptr, i, -o_ptr->number);
-            }
-
-            change = true;
+        const auto item_ptr = &player_ptr->inventory_list[i];
+        const auto r_idx_of_item = static_cast<MonsterRaceId>(item_ptr->pval);
+        if ((item_ptr->bi_key != BaseitemKey(ItemKindType::CORPSE, SV_CORPSE)) || (monraces_info[r_idx_of_item].name != monraces_info[w_ptr->today_mon].name)) {
+            continue;
         }
+
+        change = true;
+        const auto item_name = describe_flavor(player_ptr, item_ptr, 0);
+        if (!input_check(format(_("%s を換金しますか？", "Convert %s into money? "), item_name.data()))) {
+            continue;
+        }
+
+        constexpr auto mes = _("賞金 %ld＄を手に入れた。", "You get %ldgp.");
+        msg_format(mes, (long int)((monraces_info[w_ptr->today_mon].level * 50 + 100) * item_ptr->number));
+        player_ptr->au += (monraces_info[w_ptr->today_mon].level * 50 + 100) * item_ptr->number;
+        rfu.set_flag(MainWindowRedrawingFlag::GOLD);
+        vary_item(player_ptr, i, -item_ptr->number);
     }
 
     for (INVENTORY_IDX i = 0; i < INVEN_PACK; i++) {
-        o_ptr = &player_ptr->inventory_list[i];
-        const auto r_idx_of_item = static_cast<MonsterRaceId>(o_ptr->pval);
-
-        if (o_ptr->bi_key == BaseitemKey(ItemKindType::CORPSE, SV_SKELETON) && (streq(monraces_info[r_idx_of_item].name.data(), monraces_info[w_ptr->today_mon].name.data()))) {
-            char buf[MAX_NLEN + 32];
-            describe_flavor(player_ptr, o_name, o_ptr, 0);
-            sprintf(buf, _("%s を換金しますか？", "Convert %s into money? "), o_name);
-            if (get_check(buf)) {
-                msg_format(_("賞金 %ld＄を手に入れた。", "You get %ldgp."), (long int)((monraces_info[w_ptr->today_mon].level * 30 + 60) * o_ptr->number));
-                player_ptr->au += (monraces_info[w_ptr->today_mon].level * 30 + 60) * o_ptr->number;
-                player_ptr->redraw |= (PR_GOLD);
-                vary_item(player_ptr, i, -o_ptr->number);
-            }
-
-            change = true;
+        const auto item_ptr = &player_ptr->inventory_list[i];
+        const auto r_idx_of_item = static_cast<MonsterRaceId>(item_ptr->pval);
+        if ((item_ptr->bi_key != BaseitemKey(ItemKindType::CORPSE, SV_SKELETON)) || (monraces_info[r_idx_of_item].name != monraces_info[w_ptr->today_mon].name)) {
+            continue;
         }
+
+        change = true;
+        const auto item_name = describe_flavor(player_ptr, item_ptr, 0);
+        if (!input_check(format(_("%s を換金しますか？", "Convert %s into money? "), item_name.data()))) {
+            continue;
+        }
+
+        constexpr auto mes = _("賞金 %ld＄を手に入れた。", "You get %ldgp.");
+        msg_format(mes, (long int)((monraces_info[w_ptr->today_mon].level * 30 + 60) * item_ptr->number));
+        player_ptr->au += (monraces_info[w_ptr->today_mon].level * 30 + 60) * item_ptr->number;
+        rfu.set_flag(MainWindowRedrawingFlag::GOLD);
+        vary_item(player_ptr, i, -item_ptr->number);
     }
 
     for (auto &[r_idx, is_achieved] : w_ptr->bounties) {
@@ -152,31 +153,28 @@ bool exchange_cash(PlayerType *player_ptr)
         }
 
         for (INVENTORY_IDX i = INVEN_PACK - 1; i >= 0; i--) {
-            o_ptr = &player_ptr->inventory_list[i];
-            const auto r_idx_of_item = static_cast<MonsterRaceId>(o_ptr->pval);
-
-            if ((o_ptr->bi_key.tval() != ItemKindType::CORPSE) || (r_idx_of_item != r_idx)) {
+            const auto item_ptr = &player_ptr->inventory_list[i];
+            const auto r_idx_of_item = static_cast<MonsterRaceId>(item_ptr->pval);
+            if ((item_ptr->bi_key.tval() != ItemKindType::CORPSE) || (r_idx_of_item != r_idx)) {
                 continue;
             }
 
-            char buf[MAX_NLEN + 20];
-            INVENTORY_IDX item_new;
+            INVENTORY_IDX inventory_new;
             ItemEntity forge;
 
-            describe_flavor(player_ptr, o_name, o_ptr, 0);
-            sprintf(buf, _("%sを渡しますか？", "Hand %s over? "), o_name);
-            if (!get_check(buf)) {
+            const auto item_name = describe_flavor(player_ptr, item_ptr, 0);
+            if (!input_check(format(_("%sを渡しますか？", "Hand %s over? "), item_name.data()))) {
                 continue;
             }
 
-            vary_item(player_ptr, i, -o_ptr->number);
-            chg_virtue(player_ptr, V_JUSTICE, 5);
+            vary_item(player_ptr, i, -item_ptr->number);
+            chg_virtue(player_ptr, Virtue::JUSTICE, 5);
             is_achieved = true;
 
-            auto num = std::count_if(std::begin(w_ptr->bounties), std::end(w_ptr->bounties),
-                [](const auto &b_ref) { return b_ref.is_achieved; });
+            auto num = static_cast<int>(std::count_if(std::begin(w_ptr->bounties), std::end(w_ptr->bounties),
+                [](const auto &b_ref) { return b_ref.is_achieved; }));
 
-            msg_format(_("これで合計 %d ポイント獲得しました。", "You earned %d point%s total."), num, (num > 1 ? "s" : ""));
+            msg_print(_(format("これで合計 %d ポイント獲得しました。", num), format("You earned %d point%s total.", num, (num > 1 ? "s" : ""))));
 
             (&forge)->prep(lookup_baseitem_id(prize_list[num - 1]));
             ItemMagicApplier(player_ptr, &forge, player_ptr->current_floor_ptr->object_level, AM_NO_FIXED_ART).execute();
@@ -189,11 +187,11 @@ bool exchange_cash(PlayerType *player_ptr)
              * Since a corpse is handed at first,
              * there is at least one empty slot.
              */
-            item_new = store_item_to_inventory(player_ptr, &forge);
-            describe_flavor(player_ptr, o_name, &forge, 0);
-            msg_format(_("%s(%c)を貰った。", "You get %s (%c). "), o_name, index_to_label(item_new));
+            inventory_new = store_item_to_inventory(player_ptr, &forge);
+            const auto got_item_name = describe_flavor(player_ptr, &forge, 0);
+            msg_format(_("%s(%c)を貰った。", "You get %s (%c). "), got_item_name.data(), index_to_label(inventory_new));
 
-            autopick_alter_item(player_ptr, item_new, false);
+            autopick_alter_item(player_ptr, inventory_new, false);
             handle_stuff(player_ptr);
             change = true;
         }
@@ -214,17 +212,13 @@ bool exchange_cash(PlayerType *player_ptr)
  */
 void today_target(PlayerType *player_ptr)
 {
-    char buf[160];
     auto *r_ptr = &monraces_info[w_ptr->today_mon];
 
     clear_bldg(4, 18);
     c_put_str(TERM_YELLOW, _("本日の賞金首", "Wanted monster that changes from day to day"), 5, 10);
-    sprintf(buf, _("ターゲット： %s", "target: %s"), r_ptr->name.data());
-    c_put_str(TERM_YELLOW, buf, 6, 10);
-    sprintf(buf, _("死体 ---- $%d", "corpse   ---- $%d"), (int)r_ptr->level * 50 + 100);
-    prt(buf, 8, 10);
-    sprintf(buf, _("骨   ---- $%d", "skeleton ---- $%d"), (int)r_ptr->level * 30 + 60);
-    prt(buf, 9, 10);
+    c_put_str(TERM_YELLOW, format(_("ターゲット： %s", "target: %s"), r_ptr->name.data()), 6, 10);
+    prt(format(_("死体 ---- $%d", "corpse   ---- $%d"), (int)r_ptr->level * 50 + 100), 8, 10);
+    prt(format(_("骨   ---- $%d", "skeleton ---- $%d"), (int)r_ptr->level * 30 + 60), 9, 10);
     player_ptr->knows_daily_bounty = true;
 }
 
@@ -295,12 +289,12 @@ void determine_daily_bounty(PlayerType *player_ptr, bool conv_old)
     get_mon_num_prep_bounty(player_ptr);
 
     while (true) {
-        w_ptr->today_mon = get_mon_num(player_ptr, std::min(max_dl / 2, 40), max_dl, GMN_ARENA);
+        w_ptr->today_mon = get_mon_num(player_ptr, std::min(max_dl / 2, 40), max_dl, PM_ARENA);
         MonsterRaceInfo *r_ptr;
         r_ptr = &monraces_info[w_ptr->today_mon];
 
         if (cheat_hear) {
-            msg_format("日替わり候補: %s ", r_ptr->name.data());
+            msg_format(_("日替わり候補: %s ", "Today's candidate: %s "), r_ptr->name.data());
         }
 
         if (r_ptr->kind_flags.has(MonsterKindType::UNIQUE)) {
@@ -331,20 +325,20 @@ void determine_daily_bounty(PlayerType *player_ptr, bool conv_old)
 void determine_bounty_uniques(PlayerType *player_ptr)
 {
     get_mon_num_prep_bounty(player_ptr);
-
-    auto is_suitable_for_bounty = [](MonsterRaceId r_idx) {
-        const auto &r_ref = monraces_info[r_idx];
-        bool is_suitable = r_ref.kind_flags.has(MonsterKindType::UNIQUE);
-        is_suitable &= r_ref.drop_flags.has_any_of({ MonsterDropType::DROP_CORPSE, MonsterDropType::DROP_SKELETON });
-        is_suitable &= r_ref.rarity <= 100;
-        is_suitable &= !no_questor_or_bounty_uniques(r_idx);
+    const auto &monraces = MonraceList::get_instance();
+    auto is_suitable_for_bounty = [&monraces](MonsterRaceId r_idx) {
+        const auto &monrace = monraces[r_idx];
+        auto is_suitable = monrace.kind_flags.has(MonsterKindType::UNIQUE);
+        is_suitable &= monrace.drop_flags.has_any_of({ MonsterDropType::DROP_CORPSE, MonsterDropType::DROP_SKELETON });
+        is_suitable &= monrace.rarity <= 100;
+        is_suitable &= !monraces.can_unify_separate(r_idx);
         return is_suitable;
     };
 
     // 賞金首とするモンスターの種族IDのリストを生成
     std::vector<MonsterRaceId> bounty_r_idx_list;
     while (bounty_r_idx_list.size() < std::size(w_ptr->bounties)) {
-        auto r_idx = get_mon_num(player_ptr, 0, MAX_DEPTH - 1, GMN_ARENA);
+        auto r_idx = get_mon_num(player_ptr, 0, MAX_DEPTH - 1, PM_ARENA);
         if (!is_suitable_for_bounty(r_idx)) {
             continue;
         }

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 /*
  * @file item-entity.h
@@ -22,6 +22,9 @@ enum class ItemKindType : short;
 enum class SmithEffectType : int16_t;
 enum class RandomArtActType : short;
 
+class ArtifactType;
+class EgoItemDefinition;
+class BaseitemInfo;
 class ItemEntity {
 public:
     ItemEntity();
@@ -59,8 +62,8 @@ public:
     TIME_EFFECT timeout{}; /*!< Timeout Counter */
     byte ident{}; /*!< Special flags  */
     EnumClassFlagGroup<OmType> marked{}; /*!< Object is marked */
-    uint16_t inscription{}; /*!< Inscription index */
-    uint16_t art_name{}; /*!< Artifact name (random artifacts) */
+    std::optional<std::string> inscription{}; /*!< Inscription */
+    std::optional<std::string> randart_name{}; /*!< Artifact name (random artifacts) */
     byte feeling{}; /*!< Game generated inscription number (eg, pseudo-id) */
 
     TrFlags art_flags{}; /*!< Extra Flags for ego and artifacts */
@@ -94,7 +97,7 @@ public:
     bool is_rare() const;
     bool is_ego() const;
     bool is_smith() const;
-    bool is_artifact() const;
+    bool is_fixed_or_random_artifact() const;
     bool is_fixed_artifact() const;
     bool is_random_artifact() const;
     bool is_nameless() const;
@@ -132,9 +135,17 @@ public:
     bool is_junk() const;
     bool is_armour() const;
     bool is_cross_bow() const;
+    bool is_inscribed() const;
+
+    BaseitemInfo &get_baseitem() const;
+    EgoItemDefinition &get_ego() const;
+    ArtifactType &get_fixed_artifact() const;
+    TrFlags get_flags() const;
+    TrFlags get_flags_known() const;
 
 private:
     int get_baseitem_price() const;
     int calc_figurine_value() const;
     int calc_capture_value() const;
+    void modify_ego_lite_flags(TrFlags &flags) const;
 };

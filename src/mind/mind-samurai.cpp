@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 剣術家のレイシャルパワー処理
  * @date 2020/05/16
  * @author Hourier
@@ -8,8 +8,6 @@
 #include "action/action-limited.h"
 #include "avatar/avatar.h"
 #include "cmd-action/cmd-attack.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "inventory/inventory-slot-types.h"
 #include "io/input-key-acceptor.h"
 #include "mind/stances-table.h"
@@ -25,7 +23,7 @@
 #include "monster/monster-status.h"
 #include "object-enchant/tr-types.h"
 #include "pet/pet-util.h"
-#include "player-attack/player-attack-util.h"
+#include "player-attack/player-attack.h"
 #include "player-base/player-class.h"
 #include "player-info/samurai-data-type.h"
 #include "player/attack-defense-types.h"
@@ -35,7 +33,9 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "timed-effect/player-cut.h"
 #include "timed-effect/player-fear.h"
 #include "timed-effect/player-stun.h"
@@ -45,6 +45,7 @@
 #include "view/display-messages.h"
 
 struct samurai_slaying_type {
+    samurai_slaying_type(MULTIPLY mult, const TrFlags &flags, MonsterEntity *m_ptr, combat_options mode, MonsterRaceInfo *r_ptr);
     MULTIPLY mult;
     TrFlags flags;
     MonsterEntity *m_ptr;
@@ -52,15 +53,13 @@ struct samurai_slaying_type {
     MonsterRaceInfo *r_ptr;
 };
 
-static samurai_slaying_type *initialize_samurai_slaying_type(
-    samurai_slaying_type *samurai_slaying_ptr, MULTIPLY mult, const TrFlags &flags, MonsterEntity *m_ptr, combat_options mode, MonsterRaceInfo *r_ptr)
+samurai_slaying_type::samurai_slaying_type(MULTIPLY mult, const TrFlags &flags, MonsterEntity *m_ptr, combat_options mode, MonsterRaceInfo *r_ptr)
+    : mult(mult)
+    , flags(flags)
+    , m_ptr(m_ptr)
+    , mode(mode)
+    , r_ptr(r_ptr)
 {
-    samurai_slaying_ptr->mult = mult;
-    samurai_slaying_ptr->flags = flags;
-    samurai_slaying_ptr->m_ptr = m_ptr;
-    samurai_slaying_ptr->mode = mode;
-    samurai_slaying_ptr->r_ptr = r_ptr;
-    return samurai_slaying_ptr;
 }
 
 /*!
@@ -154,7 +153,7 @@ static void hissatsu_zanma_ken(samurai_slaying_type *samurai_slaying_ptr)
         return;
     }
 
-    if (!monster_living(samurai_slaying_ptr->m_ptr->r_idx) && samurai_slaying_ptr->r_ptr->kind_flags.has(MonsterKindType::EVIL)) {
+    if (!samurai_slaying_ptr->m_ptr->has_living_flag() && samurai_slaying_ptr->r_ptr->kind_flags.has(MonsterKindType::EVIL)) {
         if (samurai_slaying_ptr->mult < 15) {
             samurai_slaying_ptr->mult = 25;
         } else if (samurai_slaying_ptr->mult < 50) {
@@ -275,7 +274,7 @@ static void hissatsu_lightning_eagle(PlayerType *player_ptr, samurai_slaying_typ
 static void hissatsu_bloody_maelstroem(PlayerType *player_ptr, samurai_slaying_type *samurai_slaying_ptr)
 {
     auto player_cut = player_ptr->effects()->cut();
-    if ((samurai_slaying_ptr->mode == HISSATSU_SEKIRYUKA) && player_cut->is_cut() && monster_living(samurai_slaying_ptr->m_ptr->r_idx)) {
+    if ((samurai_slaying_ptr->mode == HISSATSU_SEKIRYUKA) && player_cut->is_cut() && samurai_slaying_ptr->m_ptr->has_living_flag()) {
         auto tmp = std::min<short>(100, std::max<short>(10, player_cut->current() / 10));
         if (samurai_slaying_ptr->mult < tmp) {
             samurai_slaying_ptr->mult = tmp;
@@ -324,9 +323,9 @@ static void hissatsu_keiun_kininken(PlayerType *player_ptr, samurai_slaying_type
  */
 MULTIPLY mult_hissatsu(PlayerType *player_ptr, MULTIPLY mult, const TrFlags &flags, MonsterEntity *m_ptr, combat_options mode)
 {
-    auto *r_ptr = &monraces_info[m_ptr->r_idx];
-    samurai_slaying_type tmp_slaying;
-    samurai_slaying_type *samurai_slaying_ptr = initialize_samurai_slaying_type(&tmp_slaying, mult, flags, m_ptr, mode, r_ptr);
+    auto *r_ptr = &m_ptr->get_monrace();
+    samurai_slaying_type tmp_slaying(mult, flags, m_ptr, mode, r_ptr);
+    samurai_slaying_type *samurai_slaying_ptr = &tmp_slaying;
     hissatsu_burning_strike(player_ptr, samurai_slaying_ptr);
     hissatsu_serpent_tongue(player_ptr, samurai_slaying_ptr);
     hissatsu_zanma_ken(samurai_slaying_ptr);
@@ -365,7 +364,7 @@ void concentration(PlayerType *player_ptr)
         player_ptr->csp_frac = 0;
     }
 
-    player_ptr->redraw |= PR_MANA;
+    RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::MP);
 }
 
 /*!
@@ -396,7 +395,7 @@ bool choose_samurai_stance(PlayerType *player_ptr)
     prt(_(" a) 型を崩す", " a) No Form"), 2, 20);
     for (auto i = 0U; i < samurai_stances.size(); i++) {
         if (player_ptr->lev >= samurai_stances[i].min_level) {
-            sprintf(buf, _(" %c) %sの型    %s", " %c) Stance of %-12s  %s"), I2A(i + 1), samurai_stances[i].desc, samurai_stances[i].info);
+            strnfmt(buf, sizeof(buf), _(" %c) %sの型    %s", " %c) Stance of %-12s  %s"), I2A(i + 1), samurai_stances[i].desc, samurai_stances[i].info);
             prt(buf, 3 + i, 20);
         }
     }
@@ -435,15 +434,24 @@ bool choose_samurai_stance(PlayerType *player_ptr)
     }
 
     set_action(player_ptr, ACTION_SAMURAI_STANCE);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     if (PlayerClass(player_ptr).samurai_stance_is(new_stance)) {
         msg_print(_("構え直した。", "You reassume a stance."));
     } else {
-        player_ptr->update |= (PU_BONUS | PU_MONSTERS);
+        static constexpr auto flags_srf = {
+            StatusRecalculatingFlag::BONUS,
+            StatusRecalculatingFlag::MONSTER_STATUSES,
+        };
+        rfu.set_flags(flags_srf);
         msg_format(_("%sの型で構えた。", "You assume the %s stance."), samurai_stances[enum2i(new_stance) - 1].desc);
         PlayerClass(player_ptr).set_samurai_stance(new_stance);
     }
 
-    player_ptr->redraw |= (PR_STATE | PR_STATUS);
+    static constexpr auto flags = {
+        MainWindowRedrawingFlag::ACTION,
+        MainWindowRedrawingFlag::TIMED_EFFECT,
+    };
+    rfu.set_flags(flags);
     screen_load();
     return true;
 }
@@ -471,7 +479,7 @@ int calc_attack_quality(PlayerType *player_ptr, player_attack_type *pa_ptr)
         chance = std::max(chance * 3 / 2, chance + 60);
     }
 
-    int vir = virtue_number(player_ptr, V_VALOUR);
+    int vir = virtue_number(player_ptr, Virtue::VALOUR);
     if (vir != 0) {
         chance += (player_ptr->virtues[vir - 1] / 10);
     }
@@ -493,8 +501,8 @@ void mineuchi(PlayerType *player_ptr, player_attack_type *pa_ptr)
     pa_ptr->attack_damage = 0;
     anger_monster(player_ptr, pa_ptr->m_ptr);
 
-    auto *r_ptr = &monraces_info[pa_ptr->m_ptr->r_idx];
-    if ((r_ptr->flags3 & (RF3_NO_STUN))) {
+    auto *r_ptr = &pa_ptr->m_ptr->get_monrace();
+    if (r_ptr->resistance_flags.has(MonsterResistanceType::NO_STUN)) {
         msg_format(_("%s には効果がなかった。", "%s is not effected."), pa_ptr->m_name);
         return;
     }
@@ -517,15 +525,15 @@ void mineuchi(PlayerType *player_ptr, player_attack_type *pa_ptr)
  */
 void musou_counterattack(PlayerType *player_ptr, MonsterAttackPlayer *monap_ptr)
 {
-    if ((!player_ptr->counter && !PlayerClass(player_ptr).samurai_stance_is(SamuraiStanceType::MUSOU)) || !monap_ptr->alive || player_ptr->is_dead || !monap_ptr->m_ptr->ml || (player_ptr->csp <= 7)) {
+    const auto is_musou = PlayerClass(player_ptr).samurai_stance_is(SamuraiStanceType::MUSOU);
+    if ((!player_ptr->counter && !is_musou) || !monap_ptr->alive || player_ptr->is_dead || !monap_ptr->m_ptr->ml || (player_ptr->csp <= 7)) {
         return;
     }
 
-    char m_target_name[MAX_NLEN];
-    monster_desc(player_ptr, m_target_name, monap_ptr->m_ptr, 0);
+    const auto m_target_name = monster_desc(player_ptr, monap_ptr->m_ptr, 0);
     player_ptr->csp -= 7;
-    msg_format(_("%^sに反撃した！", "You counterattacked %s!"), m_target_name);
+    msg_format(_("%s^に反撃した！", "You counterattacked %s!"), m_target_name.data());
     do_cmd_attack(player_ptr, monap_ptr->m_ptr->fy, monap_ptr->m_ptr->fx, HISSATSU_COUNTER);
     monap_ptr->fear = false;
-    player_ptr->redraw |= (PR_MANA);
+    RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::MP);
 }

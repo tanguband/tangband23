@@ -1,4 +1,4 @@
-﻿#include "spell-kind/spells-pet.h"
+#include "spell-kind/spells-pet.h"
 #include "core/asking-player.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
@@ -29,13 +29,13 @@ void discharge_minion(PlayerType *player_ptr)
         if (!MonsterRace(m_ptr->r_idx).is_valid() || !m_ptr->is_pet()) {
             continue;
         }
-        if (m_ptr->nickname) {
+        if (m_ptr->is_named()) {
             okay = false;
         }
     }
 
     if (!okay || player_ptr->riding) {
-        if (!get_check(_("本当に全ペットを爆破しますか？", "You will blast all pets. Are you sure? "))) {
+        if (!input_check(_("本当に全ペットを爆破しますか？", "You will blast all pets. Are you sure? "))) {
             return;
         }
     }
@@ -47,11 +47,10 @@ void discharge_minion(PlayerType *player_ptr)
         }
 
         MonsterRaceInfo *r_ptr;
-        r_ptr = &monraces_info[m_ptr->r_idx];
+        r_ptr = &m_ptr->get_monrace();
         if (r_ptr->kind_flags.has(MonsterKindType::UNIQUE)) {
-            GAME_TEXT m_name[MAX_NLEN];
-            monster_desc(player_ptr, m_name, m_ptr, 0x00);
-            msg_format(_("%sは爆破されるのを嫌がり、勝手に自分の世界へと帰った。", "%^s resists being blasted and runs away."), m_name);
+            const auto m_name = monster_desc(player_ptr, m_ptr, 0x00);
+            msg_format(_("%sは爆破されるのを嫌がり、勝手に自分の世界へと帰った。", "%s^ resists being blasted and runs away."), m_name.data());
             delete_monster_idx(player_ptr, i);
             continue;
         }
@@ -68,11 +67,9 @@ void discharge_minion(PlayerType *player_ptr)
         }
         project(player_ptr, i, 2 + (r_ptr->level / 20), m_ptr->fy, m_ptr->fx, dam, AttributeType::PLASMA, PROJECT_STOP | PROJECT_GRID | PROJECT_ITEM | PROJECT_KILL);
 
-        if (record_named_pet && m_ptr->nickname) {
-            GAME_TEXT m_name[MAX_NLEN];
-
-            monster_desc(player_ptr, m_name, m_ptr, MD_INDEF_VISIBLE);
-            exe_write_diary(player_ptr, DIARY_NAMED_PET, RECORD_NAMED_PET_BLAST, m_name);
+        if (record_named_pet && m_ptr->is_named()) {
+            const auto m_name = monster_desc(player_ptr, m_ptr, MD_INDEF_VISIBLE);
+            exe_write_diary(player_ptr, DiaryKind::NAMED_PET, RECORD_NAMED_PET_BLAST, m_name);
         }
 
         delete_monster_idx(player_ptr, i);

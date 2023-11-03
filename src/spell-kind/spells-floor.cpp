@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief フロアに影響のある魔法の処理
  * @date 2019/02/21
  * @author deskull
@@ -7,8 +7,6 @@
 #include "spell-kind/spells-floor.h"
 #include "action/travel-execution.h"
 #include "cmd-io/cmd-dump.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/window-redrawer.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "dungeon/quest.h"
@@ -52,6 +50,7 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "util/bit-flags-calculator.h"
 #include "view/display-messages.h"
@@ -64,8 +63,9 @@
 void wiz_lite(PlayerType *player_ptr, bool ninja)
 {
     /* Memorize objects */
-    for (OBJECT_IDX i = 1; i < player_ptr->current_floor_ptr->o_max; i++) {
-        auto *o_ptr = &player_ptr->current_floor_ptr->o_list[i];
+    auto &floor = *player_ptr->current_floor_ptr;
+    for (OBJECT_IDX i = 1; i < floor.o_max; i++) {
+        auto *o_ptr = &floor.o_list[i];
         if (!o_ptr->is_valid()) {
             continue;
         }
@@ -76,35 +76,35 @@ void wiz_lite(PlayerType *player_ptr, bool ninja)
     }
 
     /* Scan all normal grids */
-    for (POSITION y = 1; y < player_ptr->current_floor_ptr->height - 1; y++) {
+    const auto &terrains = TerrainList::get_instance();
+    for (POSITION y = 1; y < floor.height - 1; y++) {
         /* Scan all normal grids */
-        for (POSITION x = 1; x < player_ptr->current_floor_ptr->width - 1; x++) {
-            auto *g_ptr = &player_ptr->current_floor_ptr->grid_array[y][x];
+        for (POSITION x = 1; x < floor.width - 1; x++) {
+            auto *g_ptr = &floor.grid_array[y][x];
 
             /* Memorize terrain of the grid */
             g_ptr->info |= (CAVE_KNOWN);
 
             /* Feature code (applying "mimic" field) */
             FEAT_IDX feat = g_ptr->get_feat_mimic();
-            TerrainType *f_ptr;
-            f_ptr = &terrains_info[feat];
+            auto *t_ptr = &terrains[feat];
 
             /* Scan all neighbors */
             for (OBJECT_IDX i = 0; i < 9; i++) {
                 POSITION yy = y + ddy_ddd[i];
                 POSITION xx = x + ddx_ddd[i];
-                g_ptr = &player_ptr->current_floor_ptr->grid_array[yy][xx];
+                g_ptr = &floor.grid_array[yy][xx];
 
                 /* Feature code (applying "mimic" field) */
-                f_ptr = &terrains_info[g_ptr->get_feat_mimic()];
+                t_ptr = &terrains[g_ptr->get_feat_mimic()];
 
                 /* Perma-lite the grid */
-                if (dungeons_info[player_ptr->dungeon_idx].flags.has_not(DungeonFeatureType::DARKNESS) && !ninja) {
+                if (floor.get_dungeon_definition().flags.has_not(DungeonFeatureType::DARKNESS) && !ninja) {
                     g_ptr->info |= (CAVE_GLOW);
                 }
 
                 /* Memorize normal features */
-                if (f_ptr->flags.has(TerrainCharacteristics::REMEMBER)) {
+                if (t_ptr->flags.has(TerrainCharacteristics::REMEMBER)) {
                     /* Memorize the grid */
                     g_ptr->info |= (CAVE_MARK);
                 }
@@ -121,11 +121,16 @@ void wiz_lite(PlayerType *player_ptr, bool ninja)
         }
     }
 
-    player_ptr->update |= (PU_MONSTERS);
-    player_ptr->redraw |= (PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON | PW_FOUND_ITEM_LIST);
-
-    if (player_ptr->current_floor_ptr->grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) {
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    rfu.set_flag(StatusRecalculatingFlag::MONSTER_STATUSES);
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+        SubWindowRedrawingFlag::FOUND_ITEMS,
+    };
+    rfu.set_flags(flags_swrf);
+    if (floor.grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) {
         set_superstealth(player_ptr, false);
     }
 }
@@ -177,11 +182,23 @@ void wiz_dark(PlayerType *player_ptr)
     /* Forget travel route when we have forgotten map */
     forget_travel_flow(player_ptr->current_floor_ptr);
 
-    player_ptr->update |= (PU_UN_VIEW | PU_UN_LITE);
-    player_ptr->update |= (PU_VIEW | PU_LITE | PU_MON_LITE);
-    player_ptr->update |= (PU_MONSTERS);
-    player_ptr->redraw |= (PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON | PW_FOUND_ITEM_LIST);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::UN_VIEW,
+        StatusRecalculatingFlag::UN_LITE,
+        StatusRecalculatingFlag::VIEW,
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::MONSTER_LITE,
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+    };
+    rfu.set_flags(flags_srf);
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+        SubWindowRedrawingFlag::FOUND_ITEMS,
+    };
+    rfu.set_flags(flags_swrf);
 }
 
 /*
@@ -189,44 +206,45 @@ void wiz_dark(PlayerType *player_ptr)
  */
 void map_area(PlayerType *player_ptr, POSITION range)
 {
-    if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::DARKNESS)) {
+    auto &floor = *player_ptr->current_floor_ptr;
+    if (floor.get_dungeon_definition().flags.has(DungeonFeatureType::DARKNESS)) {
         range /= 3;
     }
 
     /* Scan that area */
-    for (POSITION y = 1; y < player_ptr->current_floor_ptr->height - 1; y++) {
-        for (POSITION x = 1; x < player_ptr->current_floor_ptr->width - 1; x++) {
+    const auto &terrains = TerrainList::get_instance();
+    for (POSITION y = 1; y < floor.height - 1; y++) {
+        for (POSITION x = 1; x < floor.width - 1; x++) {
             if (distance(player_ptr->y, player_ptr->x, y, x) > range) {
                 continue;
             }
 
             grid_type *g_ptr;
-            g_ptr = &player_ptr->current_floor_ptr->grid_array[y][x];
+            g_ptr = &floor.grid_array[y][x];
 
             /* Memorize terrain of the grid */
             g_ptr->info |= (CAVE_KNOWN);
 
             /* Feature code (applying "mimic" field) */
             FEAT_IDX feat = g_ptr->get_feat_mimic();
-            TerrainType *f_ptr;
-            f_ptr = &terrains_info[feat];
+            auto *t_ptr = &terrains[feat];
 
             /* Memorize normal features */
-            if (f_ptr->flags.has(TerrainCharacteristics::REMEMBER)) {
+            if (t_ptr->flags.has(TerrainCharacteristics::REMEMBER)) {
                 /* Memorize the object */
                 g_ptr->info |= (CAVE_MARK);
             }
 
             /* Memorize known walls */
             for (int i = 0; i < 8; i++) {
-                g_ptr = &player_ptr->current_floor_ptr->grid_array[y + ddy_ddd[i]][x + ddx_ddd[i]];
+                g_ptr = &floor.grid_array[y + ddy_ddd[i]][x + ddx_ddd[i]];
 
                 /* Feature code (applying "mimic" field) */
                 feat = g_ptr->get_feat_mimic();
-                f_ptr = &terrains_info[feat];
+                t_ptr = &terrains[feat];
 
                 /* Memorize walls (etc) */
-                if (f_ptr->flags.has(TerrainCharacteristics::REMEMBER)) {
+                if (t_ptr->flags.has(TerrainCharacteristics::REMEMBER)) {
                     /* Memorize the walls */
                     g_ptr->info |= (CAVE_MARK);
                 }
@@ -234,8 +252,13 @@ void map_area(PlayerType *player_ptr, POSITION range)
         }
     }
 
-    player_ptr->redraw |= (PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+    };
+    rfu.set_flags(flags_swrf);
 }
 
 /*!
@@ -257,7 +280,7 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
 {
     /* Prevent destruction of quest levels and town */
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if ((inside_quest(floor_ptr->quest_number) && quest_type::is_fixed(floor_ptr->quest_number)) || !floor_ptr->dun_level) {
+    if ((floor_ptr->is_in_quest() && QuestType::is_fixed(floor_ptr->quest_number)) || !floor_ptr->dun_level) {
         return false;
     }
 
@@ -312,7 +335,7 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
 
             if (g_ptr->m_idx) {
                 auto *m_ptr = &floor_ptr->m_list[g_ptr->m_idx];
-                auto *r_ptr = &monraces_info[m_ptr->r_idx];
+                auto *r_ptr = &m_ptr->get_monrace();
 
                 if (in_generate) /* In generation */
                 {
@@ -327,11 +350,9 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
                         continue;
                     }
                 } else {
-                    if (record_named_pet && m_ptr->is_pet() && m_ptr->nickname) {
-                        GAME_TEXT m_name[MAX_NLEN];
-
-                        monster_desc(player_ptr, m_name, m_ptr, MD_INDEF_VISIBLE);
-                        exe_write_diary(player_ptr, DIARY_NAMED_PET, RECORD_NAMED_PET_DESTROY, m_name);
+                    if (record_named_pet && m_ptr->is_named_pet()) {
+                        const auto m_name = monster_desc(player_ptr, m_ptr, MD_INDEF_VISIBLE);
+                        exe_write_diary(player_ptr, DiaryKind::NAMED_PET, RECORD_NAMED_PET_DESTROY, m_name);
                     }
 
                     /* Delete the monster (if any) */
@@ -348,14 +369,13 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
 
                     /* Hack -- Preserve unknown artifacts */
                     if (o_ptr->is_fixed_artifact() && (!o_ptr->is_known() || in_generate)) {
-                        artifacts_info.at(o_ptr->fixed_artifact_idx).is_generated = false;
+                        o_ptr->get_fixed_artifact().is_generated = false;
 
                         if (in_generate && cheat_peek) {
-                            GAME_TEXT o_name[MAX_NLEN];
-                            describe_flavor(player_ptr, o_name, o_ptr, (OD_NAME_ONLY | OD_STORE));
-                            msg_format(_("伝説のアイテム (%s) は生成中に*破壊*された。", "Artifact (%s) was *destroyed* during generation."), o_name);
+                            const auto item_name = describe_flavor(player_ptr, o_ptr, (OD_NAME_ONLY | OD_STORE));
+                            msg_format(_("伝説のアイテム (%s) は生成中に*破壊*された。", "Artifact (%s) was *destroyed* during generation."), item_name.data());
                         }
-                    } else if (in_generate && cheat_peek && o_ptr->art_name) {
+                    } else if (in_generate && cheat_peek && o_ptr->is_random_artifact()) {
                         msg_print(
                             _("ランダム・アーティファクトの1つは生成中に*破壊*された。", "One of the random artifacts was *destroyed* during generation."));
                     }
@@ -385,7 +405,7 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
                     cave_set_feat(player_ptr, y, x, feat_magma_vein);
                 } else {
                     /* Create floor */
-                    cave_set_feat(player_ptr, y, x, feat_ground_type[randint0(100)]);
+                    cave_set_feat(player_ptr, y, x, rand_choice(feat_ground_type));
                 }
 
                 continue;
@@ -436,7 +456,7 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
                 continue;
             }
 
-            if (dungeons_info[floor_ptr->dungeon_idx].flags.has(DungeonFeatureType::DARKNESS)) {
+            if (floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::DARKNESS)) {
                 continue;
             }
 
@@ -467,12 +487,23 @@ bool destroy_area(PlayerType *player_ptr, POSITION y1, POSITION x1, POSITION r, 
     }
 
     forget_flow(floor_ptr);
-
-    /* Mega-Hack -- Forget the view and lite */
-    player_ptr->update |= (PU_UN_VIEW | PU_UN_LITE | PU_VIEW | PU_LITE | PU_FLOW | PU_MON_LITE | PU_MONSTERS);
-    player_ptr->redraw |= (PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON);
-
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::UN_VIEW,
+        StatusRecalculatingFlag::UN_LITE,
+        StatusRecalculatingFlag::VIEW,
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::FLOW,
+        StatusRecalculatingFlag::MONSTER_LITE,
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+    };
+    rfu.set_flags(flags_srf);
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+    };
+    rfu.set_flags(flags_swrf);
     if (floor_ptr->grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) {
         set_superstealth(player_ptr, false);
     }

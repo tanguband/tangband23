@@ -1,4 +1,4 @@
-﻿#include "mind/mind-warrior.h"
+#include "mind/mind-warrior.h"
 #include "cmd-action/cmd-attack.h"
 #include "floor/geometry.h"
 #include "spell-kind/spells-teleport.h"
@@ -16,7 +16,7 @@
 bool hit_and_away(PlayerType *player_ptr)
 {
     DIRECTION dir;
-    if (!get_direction(player_ptr, &dir, false, false)) {
+    if (!get_direction(player_ptr, &dir)) {
         return false;
     }
     POSITION y = player_ptr->y + ddy[dir];

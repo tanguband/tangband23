@@ -1,4 +1,4 @@
-﻿#include "info-reader/dungeon-reader.h"
+#include "info-reader/dungeon-reader.h"
 #include "grid/feature.h"
 #include "info-reader/dungeon-info-tokens-table.h"
 #include "info-reader/feature-reader.h"
@@ -45,10 +45,6 @@ static bool grab_one_basic_monster_flag(dungeon_type *d_ptr, std::string_view wh
         return true;
     }
 
-    if (info_grab_one_flag(d_ptr->mflags3, r_info_flags3, what)) {
-        return true;
-    }
-
     if (info_grab_one_flag(d_ptr->mflags7, r_info_flags7, what)) {
         return true;
     }
@@ -90,6 +86,10 @@ static bool grab_one_basic_monster_flag(dungeon_type *d_ptr, std::string_view wh
     }
 
     if (EnumClassFlagGroup<MonsterSpeakType>::grab_one_flag(d_ptr->mon_speak_flags, r_info_speak_flags, what)) {
+        return true;
+    }
+
+    if (EnumClassFlagGroup<MonsterBrightnessType>::grab_one_flag(d_ptr->mon_brightness_flags, r_info_brightness_flags, what)) {
         return true;
     }
 

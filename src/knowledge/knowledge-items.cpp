@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 既知のアイテムとアーティファクトを表示する
  * @date 2020/04/23
  * @author Hourier
@@ -26,6 +26,7 @@
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "term/gameterm.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
 #include "util/angband-files.h"
@@ -35,6 +36,7 @@
 #include "world/world.h"
 #include <numeric>
 #include <set>
+#include <vector>
 
 /*!
  * @brief Check the status of "artifacts"
@@ -50,11 +52,8 @@ void do_cmd_knowledge_artifacts(PlayerType *player_ptr)
 
     std::set<FixedArtifactId> known_list;
 
-    for (const auto &[a_idx, a_ref] : artifacts_info) {
-        if (a_ref.name.empty()) {
-            continue;
-        }
-        if (!a_ref.is_generated) {
+    for (const auto &[a_idx, artifact] : artifacts_info) {
+        if (artifact.name.empty() || !artifact.is_generated) {
             continue;
         }
 
@@ -65,12 +64,8 @@ void do_cmd_knowledge_artifacts(PlayerType *player_ptr)
         for (POSITION x = 0; x < player_ptr->current_floor_ptr->width; x++) {
             auto *g_ptr = &player_ptr->current_floor_ptr->grid_array[y][x];
             for (const auto this_o_idx : g_ptr->o_idx_list) {
-                ItemEntity *o_ptr;
-                o_ptr = &player_ptr->current_floor_ptr->o_list[this_o_idx];
-                if (!o_ptr->is_fixed_artifact()) {
-                    continue;
-                }
-                if (o_ptr->is_known()) {
+                const auto *o_ptr = &player_ptr->current_floor_ptr->o_list[this_o_idx];
+                if (!o_ptr->is_fixed_artifact() || o_ptr->is_known()) {
                     continue;
                 }
 
@@ -81,7 +76,7 @@ void do_cmd_knowledge_artifacts(PlayerType *player_ptr)
 
     for (auto i = 0; i < INVEN_TOTAL; i++) {
         auto *o_ptr = &player_ptr->inventory_list[i];
-        if (!o_ptr->bi_id) {
+        if (!o_ptr->is_valid()) {
             continue;
         }
         if (!o_ptr->is_fixed_artifact()) {
@@ -99,13 +94,12 @@ void do_cmd_knowledge_artifacts(PlayerType *player_ptr)
     uint16_t why = 3;
     ang_sort(player_ptr, whats.data(), &why, whats.size(), ang_sort_art_comp, ang_sort_art_swap);
     for (auto a_idx : whats) {
-        const auto &a_ref = artifacts_info.at(a_idx);
-        GAME_TEXT base_name[MAX_NLEN];
-        strcpy(base_name, _("未知の伝説のアイテム", "Unknown Artifact"));
-        const auto bi_id = lookup_baseitem_id(a_ref.bi_key);
+        const auto &artifact = ArtifactsInfo::get_instance().get_artifact(a_idx);
+        constexpr auto unknown_art = _("未知の伝説のアイテム", "Unknown Artifact");
+        const auto bi_id = lookup_baseitem_id(artifact.bi_key);
         constexpr auto template_basename = _("     %s\n", "     The %s\n");
         if (bi_id == 0) {
-            fprintf(fff, template_basename, base_name);
+            fprintf(fff, template_basename, unknown_art);
             continue;
         }
 
@@ -113,13 +107,37 @@ void do_cmd_knowledge_artifacts(PlayerType *player_ptr)
         item.prep(bi_id);
         item.fixed_artifact_idx = a_idx;
         item.ident |= IDENT_STORE;
-        describe_flavor(player_ptr, base_name, &item, (OD_OMIT_PREFIX | OD_NAME_ONLY));
-        fprintf(fff, template_basename, base_name);
+        const auto item_name = describe_flavor(player_ptr, &item, (OD_OMIT_PREFIX | OD_NAME_ONLY));
+        fprintf(fff, template_basename, item_name.data());
     }
 
     angband_fclose(fff);
-    (void)show_file(player_ptr, true, file_name, _("既知の伝説のアイテム", "Artifacts Seen"), 0, 0);
+    (void)show_file(player_ptr, true, file_name, 0, 0, _("既知の伝説のアイテム", "Artifacts Seen"));
     fd_kill(file_name);
+}
+
+/*!
+ * @brief ベースアイテムの出現率チェック処理
+ * @param mode グループ化モード (0x02 表示専用)
+ * @param baseitem ベースアイテムへの参照
+ * @return collect_objects() の処理を続行するか否か
+ */
+static bool check_baseitem_chance(const BIT_FLAGS8 mode, const BaseitemInfo &baseitem)
+{
+    if (mode & 0x02) {
+        return true;
+    }
+
+    if (!w_ptr->wizard && ((baseitem.flavor == 0) || !baseitem.aware)) {
+        return false;
+    }
+
+    const auto &alloc_tables = baseitem.alloc_tables;
+    const auto sum_chances = std::accumulate(alloc_tables.begin(), alloc_tables.end(), 0, [](int sum, const auto &table) {
+        return sum + table.chance;
+    });
+
+    return sum_chances > 0;
 }
 
 /*
@@ -129,26 +147,13 @@ void do_cmd_knowledge_artifacts(PlayerType *player_ptr)
  * mode & 0x01 : check for non-empty group
  * mode & 0x02 : visual operation only
  */
-static short collect_objects(int grp_cur, short object_idx[], BIT_FLAGS8 mode)
+static short collect_objects(int grp_cur, std::vector<short> &object_idx, BIT_FLAGS8 mode)
 {
     short object_cnt = 0;
-    auto group_tval = object_group_tval[grp_cur];
+    const auto group_tval = object_group_tval[grp_cur];
     for (const auto &baseitem : baseitems_info) {
-        if (baseitem.name.empty()) {
+        if (baseitem.name.empty() || !check_baseitem_chance(mode, baseitem)) {
             continue;
-        }
-
-        if (!(mode & 0x02)) {
-            if (!w_ptr->wizard) {
-                if ((baseitem.flavor == 0) || !baseitem.aware) {
-                    continue;
-                }
-            }
-
-            auto k = std::reduce(std::begin(baseitem.chance), std::end(baseitem.chance), 0);
-            if (!k) {
-                continue;
-            }
         }
 
         const auto tval = baseitem.bi_key.tval();
@@ -176,7 +181,7 @@ static short collect_objects(int grp_cur, short object_idx[], BIT_FLAGS8 mode)
 /*
  * Display the objects in a group.
  */
-static void display_object_list(int col, int row, int per_page, IDX object_idx[], int object_cur, int object_top, bool visual_only)
+static void display_object_list(int col, int row, int per_page, const std::vector<short> &object_idx, int object_cur, int object_top, bool visual_only)
 {
     int i;
     for (i = 0; i < per_page && (object_idx[object_top + i] >= 0); i++) {
@@ -206,7 +211,7 @@ static void display_object_list(int col, int row, int per_page, IDX object_idx[]
     }
 
     for (; i < per_page; i++) {
-        term_erase(col, row + i, 255);
+        term_erase(col, row + i);
     }
 }
 
@@ -237,8 +242,10 @@ static void desc_obj_fake(PlayerType *player_ptr, short bi_id)
  */
 void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool visual_only, short direct_k_idx)
 {
+    TermCenteredOffsetSetter tcos(MAIN_TERM_MIN_COLS, std::nullopt);
+
     short object_old, object_top;
-    short grp_idx[100];
+    short grp_idx[100]{};
     int object_cnt;
 
     bool visual_list = false;
@@ -246,10 +253,8 @@ void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool vi
     byte char_left = 0;
     byte mode;
 
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
-
-    int browser_rows = hgt - 8;
+    const auto &[wid, hgt] = term_get_size();
+    auto browser_rows = hgt - 8;
     std::vector<short> object_idx(baseitems_info.size());
 
     int len;
@@ -263,7 +268,7 @@ void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool vi
                 max = len;
             }
 
-            if (collect_objects(i, object_idx.data(), mode)) {
+            if (collect_objects(i, object_idx, mode)) {
                 grp_idx[grp_cnt++] = i;
             }
         }
@@ -277,8 +282,12 @@ void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool vi
         object_old = direct_k_idx;
         object_cnt = 1;
         object_idx[1] = -1;
+        const auto height = browser_rows - 1;
+        const auto width = wid - (max + 3);
+        auto *x_attr = &flavor_baseitem.x_attr;
+        auto *x_char = &flavor_baseitem.x_char;
         (void)visual_mode_command(
-            'v', &visual_list, browser_rows - 1, wid - (max + 3), &attr_top, &char_left, &flavor_baseitem.x_attr, &flavor_baseitem.x_char, need_redraw);
+            'v', &visual_list, height, width, &attr_top, &char_left, x_attr, x_char, need_redraw);
     }
 
     grp_idx[grp_cnt] = -1;
@@ -345,7 +354,7 @@ void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool vi
             display_group_list(0, 6, max, browser_rows, grp_idx, tmp_texts.data(), grp_cur, grp_top);
             if (old_grp_cur != grp_cur) {
                 old_grp_cur = grp_cur;
-                object_cnt = collect_objects(grp_idx[grp_cur], object_idx.data(), mode);
+                object_cnt = collect_objects(grp_idx[grp_cur], object_idx, mode);
             }
 
             while (object_cur < object_top) {
@@ -358,10 +367,10 @@ void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool vi
         }
 
         if (!visual_list) {
-            display_object_list(max + 3, 6, browser_rows, object_idx.data(), object_cur, object_top, visual_only);
+            display_object_list(max + 3, 6, browser_rows, object_idx, object_cur, object_top, visual_only);
         } else {
             object_top = object_cur;
-            display_object_list(max + 3, 6, 1, object_idx.data(), object_cur, object_top, visual_only);
+            display_object_list(max + 3, 6, 1, object_idx, object_cur, object_top, visual_only);
             display_visual_list(max + 3, 7, browser_rows - 1, wid - (max + 3), attr_top, char_left);
         }
 
@@ -398,8 +407,12 @@ void do_cmd_knowledge_objects(PlayerType *player_ptr, bool *need_redraw, bool vi
         }
 
         char ch = inkey();
+        const auto height = browser_rows - 1;
+        const auto width = wid - (max + 3);
+        auto *x_attr = &flavor_baseitem.x_attr;
+        auto *x_char = &flavor_baseitem.x_char;
         if (visual_mode_command(
-                ch, &visual_list, browser_rows - 1, wid - (max + 3), &attr_top, &char_left, &flavor_baseitem.x_attr, &flavor_baseitem.x_char, need_redraw)) {
+                ch, &visual_list, height, width, &attr_top, &char_left, x_attr, x_char, need_redraw)) {
             if (direct_k_idx >= 0) {
                 switch (ch) {
                 case '\n':

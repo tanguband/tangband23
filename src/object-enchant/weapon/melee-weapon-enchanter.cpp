@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 剣・鈍器・長柄/斧武器に耐性等の追加効果を付与する処理
  * @date 2022/03/22
  * @author Hourier
@@ -46,7 +46,7 @@ void MeleeWeaponEnchanter::strengthen()
     }
 
     this->give_ego_index();
-    if (this->o_ptr->art_name > 0) {
+    if (this->o_ptr->is_random_artifact()) {
         return;
     }
 

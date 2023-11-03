@@ -1,4 +1,4 @@
-﻿#include "load/old/monster-loader-savefile50.h"
+#include "load/old/monster-loader-savefile50.h"
 #include "load/angband-version-comparer.h"
 #include "load/load-util.h"
 #include "load/old/load-v1-5-0.h"
@@ -7,7 +7,6 @@
 #include "system/player-type-definition.h"
 #include "util/bit-flags-calculator.h"
 #include "util/enum-converter.h"
-#include "util/quarks.h"
 
 MonsterLoader50::MonsterLoader50(PlayerType *player_ptr)
     : player_ptr(player_ptr)
@@ -88,9 +87,9 @@ void MonsterLoader50::rd_monster(MonsterEntity *m_ptr_)
     if (any_bits(flags, SaveDataMonsterFlagType::NICKNAME)) {
         char buf[128];
         rd_string(buf, sizeof(buf));
-        this->m_ptr->nickname = quark_add(buf);
+        this->m_ptr->nickname = buf;
     } else {
-        this->m_ptr->nickname = 0;
+        this->m_ptr->nickname.clear();
     }
 
     this->m_ptr->parent_m_idx = any_bits(flags, SaveDataMonsterFlagType::PARENT) ? rd_s16b() : 0;

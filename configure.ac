@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(hengband, 3.0.0.0)
+AC_INIT(hengband, 3.0.1.0-Beta)
 
 AC_CONFIG_MACRO_DIRS([m4])
 AC_CONFIG_HEADERS(src/autoconf.h)
@@ -45,7 +45,7 @@ AC_SUBST(DEFAULT_VAR_PATH)
 dnl Checks for programs.
 AC_LANG(C++)
 AC_PROG_CXX
-AX_CXX_COMPILE_STDCXX(17, [ext], [mandatory])
+AX_CXX_COMPILE_STDCXX(20, [ext], [mandatory])
 PKG_PROG_PKG_CONFIG
 
 AC_ARG_ENABLE(japanese,
@@ -57,10 +57,10 @@ AC_ARG_ENABLE(fontset,
 [  --disable-fontset       disable fontset support], use_fontset=no, use_fontset=yes)
 AC_ARG_ENABLE([xft],
 	AS_HELP_STRING([--enable-xft], [Enable xft support]))
+AC_ARG_ENABLE(net,
+[  --disable-net           disable networking support], use_net=no)
 AC_ARG_ENABLE(worldscore,
 [  --disable-worldscore    disable worldscore support], worldscore=no)
-AC_ARG_ENABLE(chuukei,
-[  --enable-chuukei        enable internet chuukei support], AC_DEFINE(CHUUKEI, 1, [Chuukei mode]))
 AC_ARG_ENABLE([pch],
 [  --disable-pch           disable use of precompiled headers],
 enable_pch=no, enable_pch=yes)
@@ -81,12 +81,18 @@ fi
 
 AC_CHECK_LIB(iconv, iconv_open)
 
+if test "$use_net" = no; then
+  AC_DEFINE(DISABLE_NET, 1, [Disable networking support])
+  worldscore=no;
+else
+  PKG_CHECK_MODULES(libcurl, [libcurl])
+fi
+
 dnl The world score server is currently only available in Japanese.
 if test "$use_japanese" = no; then
   worldscore=no
 fi
 if test "$worldscore" != no; then
-  PKG_CHECK_MODULES(libcurl, [libcurl])
   AC_DEFINE(WORLD_SCORE, 1, [Allow the game to send scores to the score server])
 fi
 
@@ -95,7 +101,7 @@ AC_PATH_XTRA
 if test "$have_x" = yes; then
   LIBS="$LIBS -lX11"
   AC_DEFINE(USE_X11, 1, [Allow -mX11 environment])
-  CFLAGS="$X_CFLAGS $CFLAGS"
+  CXXFLAGS="$X_CFLAGS $CXXFLAGS"
   LDFLAGS="$X_LIBS $LDFLAGS"
 
   if test "$use_fontset" = yes; then
@@ -132,6 +138,14 @@ if test "$use_japanese" != no; then
   fi
 fi
 
+if test "$enable_pch" != no; then
+  dnl md5sum, sha224sum, sha256sum, sha384sum, sha512sum and b2sum are
+  dnl frequently available on Linux.  md5 is available on macOS and OpenBSD.
+  dnl sha1, sha256, and sha512 are available on OpenBSD.
+  AC_PATH_PROGS(PCH_CHECKSUMMER, [md5sum md5 sha1sum sha1 sha224sum sha256sum sha256 sha384sum sha512sum sha512 b2sum], [none])
+  AC_ARG_VAR([PCH_CHECKSUMMER], [full path to a utility to compute the checksum for the precompiled header; checksum is for ccache's pch_external_checksum])
+fi
+
 AC_CHECK_HEADERS(fcntl.h sys/file.h sys/ioctl.h sys/time.h termio.h unistd.h stdint.h)
 
 dnl Checks for typedefs, structures, and compiler characteristics.
@@ -145,7 +159,13 @@ AC_PROG_GCC_TRADITIONAL
 AC_FUNC_MEMCMP
 AC_FUNC_STRFTIME
 AC_FUNC_VPRINTF
-AC_CHECK_FUNCS(gethostname mkdir select socket strtol vsnprintf mkstemp usleep)
+AC_CHECK_FUNCS(gethostname mkdir select socket strtol mkstemp usleep)
 
-AC_CONFIG_FILES(Makefile src/Makefile lib/Makefile lib/apex/Makefile lib/bone/Makefile lib/data/Makefile lib/edit/Makefile lib/edit/quests/Makefile lib/edit/towns/Makefile lib/file/Makefile lib/help/Makefile lib/info/Makefile lib/pref/Makefile lib/save/Makefile lib/script/Makefile lib/user/Makefile lib/xtra/Makefile lib/xtra/graf/Makefile lib/xtra/music/Makefile lib/xtra/sound/Makefile)
+AC_CONFIG_FILES(Makefile src/Makefile lib/Makefile lib/apex/Makefile \
+	lib/bone/Makefile lib/data/Makefile \
+	lib/edit/Makefile lib/edit/quests/Makefile lib/edit/towns/Makefile \
+	lib/file/Makefile lib/file/books/Makefile lib/help/Makefile \
+	lib/info/Makefile lib/pref/Makefile lib/save/Makefile \
+	lib/script/Makefile lib/user/Makefile lib/xtra/Makefile \
+	lib/xtra/graf/Makefile lib/xtra/music/Makefile lib/xtra/sound/Makefile)
 AC_OUTPUT()

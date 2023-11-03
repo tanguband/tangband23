@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief モンスターからプレイヤーへの直接攻撃をその種別において振り分ける
  * @date 2020/05/31
  * @author Hourier
@@ -110,7 +110,7 @@ static void calc_blow_un_power(PlayerType *player_ptr, MonsterAttackPlayer *mona
     for (int i = 0; i < max_draining_item; i++) {
         INVENTORY_IDX i_idx = (INVENTORY_IDX)randint0(INVEN_PACK);
         monap_ptr->o_ptr = &player_ptr->inventory_list[i_idx];
-        if (monap_ptr->o_ptr->bi_id == 0) {
+        if (!monap_ptr->o_ptr->is_valid()) {
             continue;
         }
 
@@ -245,7 +245,7 @@ static void calc_blow_time(PlayerType *player_ptr, MonsterAttackPlayer *monap_pt
         return;
     }
 
-    process_monster_attack_time(player_ptr, monap_ptr);
+    process_monster_attack_time(player_ptr);
     if (has_resist_time(player_ptr)) {
         monap_ptr->damage = monap_ptr->damage * (randint1(4) + 4) / 9;
     }

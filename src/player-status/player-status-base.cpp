@@ -1,6 +1,5 @@
-﻿#include "player-status/player-status-base.h"
+#include "player-status/player-status-base.h"
 #include "inventory/inventory-slot-types.h"
-#include "object/object-flags.h"
 #include "player/player-status.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
@@ -213,11 +212,11 @@ BIT_FLAGS PlayerStatusBase::equipments_flags(tr_type check_flag)
     BIT_FLAGS flags = 0;
     for (int i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
         auto *o_ptr = &player_ptr->inventory_list[i];
-        if (!o_ptr->bi_id) {
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
-        auto o_flags = object_flags(o_ptr);
+        const auto o_flags = o_ptr->get_flags();
         if (o_flags.has(check_flag)) {
             set_bits(flags, convert_inventory_slot_type_to_flag_cause(i2enum<inventory_slot_type>(i)));
         }
@@ -235,12 +234,12 @@ BIT_FLAGS PlayerStatusBase::equipments_bad_flags(tr_type check_flag)
 {
     BIT_FLAGS flags = 0;
     for (int i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
-        auto *o_ptr = &player_ptr->inventory_list[i];
-        if (!o_ptr->bi_id) {
+        auto *o_ptr = &this->player_ptr->inventory_list[i];
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
-        auto o_flags = object_flags(o_ptr);
+        const auto o_flags = o_ptr->get_flags();
         if (o_flags.has(check_flag)) {
             if (o_ptr->pval < 0) {
                 set_bits(flags, convert_inventory_slot_type_to_flag_cause(i2enum<inventory_slot_type>(i)));
@@ -260,9 +259,9 @@ int16_t PlayerStatusBase::equipments_bonus()
     this->set_locals(); /* 計算前に値のセット。派生クラスの値がセットされる。*/
     int16_t bonus = 0;
     for (int i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
-        auto *o_ptr = &player_ptr->inventory_list[i];
-        auto o_flags = object_flags(o_ptr);
-        if (!o_ptr->bi_id) {
+        const auto *o_ptr = &player_ptr->inventory_list[i];
+        const auto o_flags = o_ptr->get_flags();
+        if (!o_ptr->is_valid()) {
             continue;
         }
 

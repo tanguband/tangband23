@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file h-system.h
  * @brief 変愚蛮怒用システムヘッダーファイル /
  * The most basic "include" file.
@@ -31,7 +31,6 @@
     #include <sys/file.h>
     #include <sys/param.h>
     #include <sys/stat.h>
-    #include <sys/timeb.h>
     #include <sys/types.h>
     #include <unistd.h>
   #endif

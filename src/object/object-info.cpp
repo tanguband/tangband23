@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief オブジェクトの実装 / Object code, part 1
  * @date 2014/01/10
  * @author
@@ -19,7 +19,6 @@
 #include "object-enchant/activation-info-table.h"
 #include "object-enchant/dragon-breaths-table.h"
 #include "object-enchant/object-ego.h"
-#include "object/object-flags.h"
 #include "player-base/player-class.h"
 #include "player/player-realm.h"
 #include "realm/realm-names-table.h"
@@ -33,32 +32,32 @@
 #include "term/term-color-types.h"
 #include "util/bit-flags-calculator.h"
 #include "util/int-char-converter.h"
+#include <sstream>
 
 /*!
  * @brief オブジェクトの発動効果名称を返す（サブルーチン/ブレス）
  * @param o_ptr 名称を取得する元のオブジェクト構造体参照ポインタ
- * @return concptr 発動名称を返す文字列ポインタ
+ * @return std::string 発動名称を返す文字列ポインタ
  */
-static concptr item_activation_dragon_breath(ItemEntity *o_ptr)
+static std::string item_activation_dragon_breath(const ItemEntity *o_ptr)
 {
-    static char desc[256];
+    std::string desc = _("", "breathe ");
     int n = 0;
 
-    auto flgs = object_flags(o_ptr);
-    strcpy(desc, _("", "breathe "));
+    const auto flags = o_ptr->get_flags();
 
     for (int i = 0; dragonbreath_info[i].flag != 0; i++) {
-        if (flgs.has(dragonbreath_info[i].flag)) {
+        if (flags.has(dragonbreath_info[i].flag)) {
             if (n > 0) {
-                strcat(desc, _("、", ", "));
+                desc.append(_("、", ", "));
             }
 
-            strcat(desc, dragonbreath_info[i].name);
+            desc.append(dragonbreath_info[i].name);
             n++;
         }
     }
 
-    strcat(desc, _("のブレス(250)", " (250)"));
+    desc.append(_("のブレス(250)", " (250)"));
     return desc;
 }
 
@@ -67,10 +66,9 @@ static concptr item_activation_dragon_breath(ItemEntity *o_ptr)
  * @param o_ptr 名称を取得する元のオブジェクト構造体参照ポインタ
  * @return concptr 発動名称を返す文字列ポインタ
  */
-static concptr item_activation_aux(ItemEntity *o_ptr)
+static concptr item_activation_aux(const ItemEntity *o_ptr)
 {
-    static char activation_detail[512];
-    char timeout[64];
+    static std::string activation_detail;
     auto tmp_act_ptr = find_activation_info(o_ptr);
     if (!tmp_act_ptr.has_value()) {
         return _("未定義", "something undefined");
@@ -78,6 +76,7 @@ static concptr item_activation_aux(ItemEntity *o_ptr)
 
     auto *act_ptr = tmp_act_ptr.value();
     concptr desc = act_ptr->desc;
+    std::string dragon_breath;
     switch (act_ptr->index) {
     case RandomArtActType::NONE:
         break;
@@ -92,7 +91,8 @@ static concptr item_activation_aux(ItemEntity *o_ptr)
         }
         break;
     case RandomArtActType::BR_DRAGON:
-        desc = item_activation_dragon_breath(o_ptr);
+        dragon_breath = item_activation_dragon_breath(o_ptr);
+        desc = dragon_breath.data();
         break;
     case RandomArtActType::AGGRAVATE:
         if (o_ptr->is_specific_artifact(FixedArtifactId::HYOUSIGI)) {
@@ -134,40 +134,48 @@ static concptr item_activation_aux(ItemEntity *o_ptr)
     }
 
     /* Timeout description */
+    std::stringstream timeout;
     int constant = act_ptr->timeout.constant;
     int dice = act_ptr->timeout.dice;
     if (constant == 0 && dice == 0) {
         /* We can activate it every turn */
-        strcpy(timeout, _("いつでも", "every turn"));
+        timeout << _("いつでも", "every turn");
     } else if (constant < 0) {
         /* Activations that have special timeout */
         switch (act_ptr->index) {
         case RandomArtActType::BR_FIRE:
-            sprintf(timeout, _("%d ターン毎", "every %d turns"), o_ptr->bi_key == BaseitemKey(ItemKindType::RING, SV_RING_FLAMES) ? 200 : 250);
+            timeout << _("", "every ") << (o_ptr->bi_key == BaseitemKey(ItemKindType::RING, SV_RING_FLAMES) ? 200 : 250) << _(" ターン毎", " turns");
             break;
         case RandomArtActType::BR_COLD:
-            sprintf(timeout, _("%d ターン毎", "every %d turns"), o_ptr->bi_key == BaseitemKey(ItemKindType::RING, SV_RING_ICE) ? 200 : 250);
+            timeout << _("", "every ") << (o_ptr->bi_key == BaseitemKey(ItemKindType::RING, SV_RING_ICE) ? 200 : 250) << _(" ターン毎", " turns");
             break;
         case RandomArtActType::TERROR:
-            strcpy(timeout, _("3*(レベル+10) ターン毎", "every 3 * (level+10) turns"));
+            timeout << _("3*(レベル+10) ターン毎", "every 3 * (level+10) turns");
             break;
         case RandomArtActType::MURAMASA:
-            strcpy(timeout, _("確率50%で壊れる", "(destroyed 50%)"));
+            timeout << _("確率50%で壊れる", "(destroyed 50%)");
             break;
         default:
-            strcpy(timeout, "undefined");
+            timeout << "undefined";
             break;
         }
     } else {
-        char constant_str[16], dice_str[16];
-        sprintf(constant_str, "%d", constant);
-        sprintf(dice_str, "d%d", dice);
-        sprintf(timeout, _("%s%s%s ターン毎", "every %s%s%s turns"), (constant > 0) ? constant_str : "", (constant > 0 && dice > 0) ? "+" : "",
-            (dice > 0) ? dice_str : "");
+        timeout << _("", "every ");
+        if (constant > 0) {
+            timeout << constant;
+            if (dice > 0) {
+                timeout << '+';
+            }
+        }
+        if (dice > 0) {
+            timeout << 'd' << dice;
+        }
+        timeout << _(" ターン毎", " turns");
     }
 
-    sprintf(activation_detail, _("%s : %s", "%s %s"), desc, timeout);
-    return activation_detail;
+    activation_detail = desc;
+    activation_detail.append(_(" : ", " ")).append(timeout.str());
+    return activation_detail.data();
 }
 
 /*!
@@ -176,10 +184,10 @@ static concptr item_activation_aux(ItemEntity *o_ptr)
  * @param o_ptr 名称を取得する元のオブジェクト構造体参照ポインタ
  * @return concptr 発動名称を返す文字列ポインタ
  */
-concptr activation_explanation(ItemEntity *o_ptr)
+std::string activation_explanation(const ItemEntity *o_ptr)
 {
-    auto flgs = object_flags(o_ptr);
-    if (flgs.has_not(TR_ACTIVATE)) {
+    const auto flags = o_ptr->get_flags();
+    if (flags.has_not(TR_ACTIVATE)) {
         return _("なし", "nothing");
     }
 
@@ -301,8 +309,8 @@ bool check_book_realm(PlayerType *player_ptr, const BaseitemKey &bi_key)
     return (get_realm1_book(player_ptr) == tval) || (get_realm2_book(player_ptr) == tval);
 }
 
-ItemEntity *ref_item(PlayerType *player_ptr, INVENTORY_IDX item)
+ItemEntity *ref_item(PlayerType *player_ptr, INVENTORY_IDX i_idx)
 {
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    return item >= 0 ? &player_ptr->inventory_list[item] : &(floor_ptr->o_list[0 - item]);
+    return i_idx >= 0 ? &player_ptr->inventory_list[i_idx] : &(floor_ptr->o_list[0 - i_idx]);
 }

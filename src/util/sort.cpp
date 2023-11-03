@@ -1,4 +1,4 @@
-﻿#include "util/sort.h"
+#include "util/sort.h"
 #include "artifact/fixed-art-types.h"
 #include "dungeon/quest.h"
 #include "grid/grid.h"
@@ -268,10 +268,12 @@ bool ang_sort_art_comp(PlayerType *player_ptr, vptr u, vptr v, int a, int b)
     int z2;
 
     /* Sort by total kills */
+    const auto &artifact_w1 = ArtifactsInfo::get_instance().get_artifact(w1);
+    const auto &artifact_w2 = ArtifactsInfo::get_instance().get_artifact(w2);
     if (*why >= 3) {
         /* Extract total kills */
-        z1 = enum2i(artifacts_info.at(w1).bi_key.tval());
-        z2 = enum2i(artifacts_info.at(w2).bi_key.tval());
+        z1 = enum2i(artifact_w1.bi_key.tval());
+        z2 = enum2i(artifact_w2.bi_key.tval());
 
         /* Compare total kills */
         if (z1 < z2) {
@@ -286,8 +288,8 @@ bool ang_sort_art_comp(PlayerType *player_ptr, vptr u, vptr v, int a, int b)
     /* Sort by monster level */
     if (*why >= 2) {
         /* Extract levels */
-        z1 = artifacts_info.at(w1).bi_key.sval().value();
-        z2 = artifacts_info.at(w2).bi_key.sval().value();
+        z1 = artifact_w1.bi_key.sval().value();
+        z2 = artifact_w2.bi_key.sval().value();
 
         /* Compare levels */
         if (z1 < z2) {
@@ -302,8 +304,8 @@ bool ang_sort_art_comp(PlayerType *player_ptr, vptr u, vptr v, int a, int b)
     /* Sort by monster experience */
     if (*why >= 1) {
         /* Extract experience */
-        z1 = artifacts_info.at(w1).level;
-        z2 = artifacts_info.at(w2).level;
+        z1 = artifact_w1.level;
+        z2 = artifact_w2.level;
 
         /* Compare experience */
         if (z1 < z2) {
@@ -380,40 +382,40 @@ bool ang_sort_comp_pet(PlayerType *player_ptr, vptr u, vptr v, int a, int b)
     int w1 = who[a];
     int w2 = who[b];
 
-    MonsterEntity *m_ptr1 = &player_ptr->current_floor_ptr->m_list[w1];
-    MonsterEntity *m_ptr2 = &player_ptr->current_floor_ptr->m_list[w2];
-    MonsterRaceInfo *r_ptr1 = &monraces_info[m_ptr1->r_idx];
-    MonsterRaceInfo *r_ptr2 = &monraces_info[m_ptr2->r_idx];
+    const auto &monster1 = player_ptr->current_floor_ptr->m_list[w1];
+    const auto &monster2 = player_ptr->current_floor_ptr->m_list[w2];
+    const auto &monrace1 = monraces_info[monster1.r_idx];
+    const auto &monrace2 = monraces_info[monster2.r_idx];
 
-    if (m_ptr1->nickname && !m_ptr2->nickname) {
+    if (monster1.is_named() && !monster2.is_named()) {
         return true;
     }
 
-    if (m_ptr2->nickname && !m_ptr1->nickname) {
+    if (monster2.is_named() && !monster1.is_named()) {
         return false;
     }
 
-    if (r_ptr1->kind_flags.has(MonsterKindType::UNIQUE) && r_ptr2->kind_flags.has_not(MonsterKindType::UNIQUE)) {
+    if (monrace1.kind_flags.has(MonsterKindType::UNIQUE) && monrace2.kind_flags.has_not(MonsterKindType::UNIQUE)) {
         return true;
     }
 
-    if (r_ptr2->kind_flags.has(MonsterKindType::UNIQUE) && r_ptr1->kind_flags.has_not(MonsterKindType::UNIQUE)) {
+    if (monrace2.kind_flags.has(MonsterKindType::UNIQUE) && monrace1.kind_flags.has_not(MonsterKindType::UNIQUE)) {
         return false;
     }
 
-    if (r_ptr1->level > r_ptr2->level) {
+    if (monrace1.level > monrace2.level) {
         return true;
     }
 
-    if (r_ptr2->level > r_ptr1->level) {
+    if (monrace2.level > monrace1.level) {
         return false;
     }
 
-    if (m_ptr1->hp > m_ptr2->hp) {
+    if (monster1.hp > monster2.hp) {
         return true;
     }
 
-    if (m_ptr2->hp > m_ptr1->hp) {
+    if (monster2.hp > monster1.hp) {
         return false;
     }
 
@@ -587,10 +589,10 @@ bool ang_sort_comp_pet_dismiss(PlayerType *player_ptr, vptr u, vptr v, int a, in
     int w1 = who[a];
     int w2 = who[b];
 
-    MonsterEntity *m_ptr1 = &player_ptr->current_floor_ptr->m_list[w1];
-    MonsterEntity *m_ptr2 = &player_ptr->current_floor_ptr->m_list[w2];
-    MonsterRaceInfo *r_ptr1 = &monraces_info[m_ptr1->r_idx];
-    MonsterRaceInfo *r_ptr2 = &monraces_info[m_ptr2->r_idx];
+    const auto &monster1 = player_ptr->current_floor_ptr->m_list[w1];
+    const auto &monster2 = player_ptr->current_floor_ptr->m_list[w2];
+    const auto &monrace1 = monraces_info[monster1.r_idx];
+    const auto &monrace2 = monraces_info[monster2.r_idx];
 
     if (w1 == player_ptr->riding) {
         return true;
@@ -600,43 +602,43 @@ bool ang_sort_comp_pet_dismiss(PlayerType *player_ptr, vptr u, vptr v, int a, in
         return false;
     }
 
-    if (m_ptr1->nickname && !m_ptr2->nickname) {
+    if (monster1.is_named() && !monster2.is_named()) {
         return true;
     }
 
-    if (m_ptr2->nickname && !m_ptr1->nickname) {
+    if (monster2.is_named() && !monster1.is_named()) {
         return false;
     }
 
-    if (!m_ptr1->parent_m_idx && m_ptr2->parent_m_idx) {
+    if (!monster1.parent_m_idx && monster2.parent_m_idx) {
         return true;
     }
 
-    if (!m_ptr2->parent_m_idx && m_ptr1->parent_m_idx) {
+    if (!monster2.parent_m_idx && monster1.parent_m_idx) {
         return false;
     }
 
-    if (r_ptr1->kind_flags.has(MonsterKindType::UNIQUE) && r_ptr2->kind_flags.has_not(MonsterKindType::UNIQUE)) {
+    if (monrace1.kind_flags.has(MonsterKindType::UNIQUE) && monrace2.kind_flags.has_not(MonsterKindType::UNIQUE)) {
         return true;
     }
 
-    if (r_ptr2->kind_flags.has(MonsterKindType::UNIQUE) && r_ptr1->kind_flags.has_not(MonsterKindType::UNIQUE)) {
+    if (monrace2.kind_flags.has(MonsterKindType::UNIQUE) && monrace1.kind_flags.has_not(MonsterKindType::UNIQUE)) {
         return false;
     }
 
-    if (r_ptr1->level > r_ptr2->level) {
+    if (monrace1.level > monrace2.level) {
         return true;
     }
 
-    if (r_ptr2->level > r_ptr1->level) {
+    if (monrace2.level > monrace1.level) {
         return false;
     }
 
-    if (m_ptr1->hp > m_ptr2->hp) {
+    if (monster1.hp > monster2.hp) {
         return true;
     }
 
-    if (m_ptr2->hp > m_ptr1->hp) {
+    if (monster2.hp > monster1.hp) {
         return false;
     }
 

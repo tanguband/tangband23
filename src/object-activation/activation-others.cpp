@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 発動処理その他 (肥大化しがちなので適宜まとまりを別ファイルへ分割すること)
  * @date 2020/08/19
  * @author Hourier
@@ -9,11 +9,9 @@
 #include "avatar/avatar.h"
 #include "cmd-io/cmd-save.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
 #include "effect/effect-processor.h"
-#include "floor/cave.h"
 #include "game-option/special-options.h"
 #include "hpmp/hp-mp-processor.h"
 #include "mind/mind-archer.h"
@@ -52,13 +50,13 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/projection-path-calculator.h"
 #include "target/target-checker.h"
 #include "target/target-getter.h"
 #include "target/target-setter.h"
 #include "target/target-types.h"
 #include "util/bit-flags-calculator.h"
-#include "util/quarks.h"
 #include "view/display-messages.h"
 
 bool activate_sunlight(PlayerType *player_ptr)
@@ -136,8 +134,8 @@ bool activate_stone_mud(PlayerType *player_ptr)
 bool activate_judgement(PlayerType *player_ptr, concptr name)
 {
     msg_format(_("%sは赤く明るく光った！", "The %s flashes bright red!"), name);
-    chg_virtue(player_ptr, V_KNOWLEDGE, 1);
-    chg_virtue(player_ptr, V_ENLIGHTEN, 1);
+    chg_virtue(player_ptr, Virtue::KNOWLEDGE, 1);
+    chg_virtue(player_ptr, Virtue::ENLIGHTEN, 1);
     wiz_lite(player_ptr, false);
 
     msg_format(_("%sはあなたの体力を奪った...", "The %s drains your vitality..."), name);
@@ -147,7 +145,7 @@ bool activate_judgement(PlayerType *player_ptr, concptr name)
     (void)detect_doors(player_ptr, DETECT_RAD_DEFAULT);
     (void)detect_stairs(player_ptr, DETECT_RAD_DEFAULT);
 
-    if (get_check(_("帰還の力を使いますか？", "Activate recall? "))) {
+    if (input_check(_("帰還の力を使いますか？", "Activate recall? "))) {
         (void)recall_player(player_ptr, randint0(21) + 15);
     }
 
@@ -177,7 +175,7 @@ bool activate_unique_detection(PlayerType *player_ptr)
             continue;
         }
 
-        r_ptr = &monraces_info[m_ptr->r_idx];
+        r_ptr = &m_ptr->get_monrace();
         if (r_ptr->kind_flags.has(MonsterKindType::UNIQUE)) {
             msg_format(_("%s． ", "%s. "), r_ptr->name.data());
         }
@@ -187,7 +185,8 @@ bool activate_unique_detection(PlayerType *player_ptr)
         }
 
         if (m_ptr->r_idx == MonsterRaceId::SAURON) {
-            msg_print(_("あなたは一瞬、瞼なき御目に凝視される感覚に襲われた！", "For a moment, you had the horrible sensation of being stared at by the lidless eye!"));
+            msg_print(_("あなたは一瞬、瞼なき御目に凝視される感覚に襲われた！",
+                "For a moment, you had the horrible sensation of being stared at by the lidless eye!"));
         }
     }
 
@@ -212,7 +211,8 @@ bool activate_cure_lw(PlayerType *player_ptr)
 bool activate_grand_cross(PlayerType *player_ptr)
 {
     msg_print(_("「闇に還れ！」", "You say, 'Return to darkness!'"));
-    (void)project(player_ptr, 0, 8, player_ptr->y, player_ptr->x, (randint1(100) + 200) * 2, AttributeType::HOLY_FIRE, PROJECT_KILL | PROJECT_ITEM | PROJECT_GRID);
+    constexpr auto flags = PROJECT_KILL | PROJECT_ITEM | PROJECT_GRID;
+    (void)project(player_ptr, 0, 8, player_ptr->y, player_ptr->x, (randint1(100) + 200) * 2, AttributeType::HOLY_FIRE, flags);
     return true;
 }
 
@@ -382,7 +382,7 @@ bool activate_protection_elbereth(PlayerType *player_ptr)
     (void)bss.set_blindness(0);
     (void)bss.hallucination(0);
     set_blessed(player_ptr, randint0(25) + 25, true);
-    set_bits(player_ptr->redraw, PR_STATS);
+    RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::ABILITY_SCORE);
     return true;
 }
 
@@ -401,7 +401,8 @@ bool activate_recall(PlayerType *player_ptr)
 
 bool activate_tree_creation(PlayerType *player_ptr, ItemEntity *o_ptr, concptr name)
 {
-    msg_format(_("%s%sから明るい緑の光があふれ出た...", "The %s%s wells with clear light..."), name, quark_str(o_ptr->art_name));
+    const auto randart_name = o_ptr->is_random_artifact() ? o_ptr->randart_name->data() : "";
+    msg_format(_("%s%sから明るい緑の光があふれ出た...", "The %s%s wells with clear light..."), name, randart_name);
     return tree_creation(player_ptr, player_ptr->y, player_ptr->x);
 }
 
@@ -434,8 +435,14 @@ bool activate_dispel_magic(PlayerType *player_ptr)
         return false;
     }
 
-    auto m_idx = player_ptr->current_floor_ptr->grid_array[target_row][target_col].m_idx;
-    if ((m_idx == 0) || !player_has_los_bold(player_ptr, target_row, target_col) || !projectable(player_ptr, player_ptr->y, player_ptr->x, target_row, target_col)) {
+    const auto &floor = *player_ptr->current_floor_ptr;
+    const Pos2D pos(target_row, target_col);
+    const auto m_idx = floor.get_grid(pos).m_idx;
+    if (m_idx == 0) {
+        return true;
+    }
+
+    if (!floor.has_los(pos) || !projectable(player_ptr, player_ptr->y, player_ptr->x, target_row, target_col)) {
         return true;
     }
 

@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 技能の経験を表示する
  * @date 2020/04/23
  * @author Hourier
@@ -69,7 +69,7 @@ void do_cmd_knowledge_weapon_exp(PlayerType *player_ptr)
     }
 
     angband_fclose(fff);
-    (void)show_file(player_ptr, true, file_name, _("武器の経験値", "Weapon Proficiency"), 0, 0);
+    (void)show_file(player_ptr, true, file_name, 0, 0, _("武器の経験値", "Weapon Proficiency"));
     fd_kill(file_name);
 }
 
@@ -100,7 +100,8 @@ void do_cmd_knowledge_spell_exp(PlayerType *player_ptr)
             }
             SUB_EXP spell_exp = player_ptr->spell_exp[i];
             auto skill_rank = PlayerSkill::spell_skill_rank(spell_exp);
-            fprintf(fff, "%-25s ", exe_spell(player_ptr, player_ptr->realm1, i, SpellProcessType::NAME));
+            const auto spell_name = exe_spell(player_ptr, player_ptr->realm1, i, SpellProcessType::NAME);
+            fprintf(fff, "%-25s ", spell_name->data());
             if (player_ptr->realm1 == REALM_HISSATSU) {
                 if (show_actual_value) {
                     fprintf(fff, "----/---- ");
@@ -141,7 +142,8 @@ void do_cmd_knowledge_spell_exp(PlayerType *player_ptr)
 
             SUB_EXP spell_exp = player_ptr->spell_exp[i + 32];
             auto skill_rank = PlayerSkill::spell_skill_rank(spell_exp);
-            fprintf(fff, "%-25s ", exe_spell(player_ptr, player_ptr->realm2, i, SpellProcessType::NAME));
+            const auto spell_name = exe_spell(player_ptr, player_ptr->realm2, i, SpellProcessType::NAME);
+            fprintf(fff, "%-25s ", spell_name->data());
             if (show_actual_value) {
                 fprintf(fff, "%4d/%4d ", spell_exp, PlayerSkill::spell_exp_at(PlayerSkillRank::MASTER));
             }
@@ -159,7 +161,7 @@ void do_cmd_knowledge_spell_exp(PlayerType *player_ptr)
     }
 
     angband_fclose(fff);
-    (void)show_file(player_ptr, true, file_name, _("魔法の経験値", "Spell Proficiency"), 0, 0);
+    (void)show_file(player_ptr, true, file_name, 0, 0, _("魔法の経験値", "Spell Proficiency"));
     fd_kill(file_name);
 }
 
@@ -196,6 +198,6 @@ void do_cmd_knowledge_skill_exp(PlayerType *player_ptr)
     }
 
     angband_fclose(fff);
-    (void)show_file(player_ptr, true, file_name, _("技能の経験値", "Miscellaneous Proficiency"), 0, 0);
+    (void)show_file(player_ptr, true, file_name, 0, 0, _("技能の経験値", "Miscellaneous Proficiency"));
     fd_kill(file_name);
 }

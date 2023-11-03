@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ファイル入出力管理 / Purpose: code dealing with files (and death)
  * @date 2014/01/28
  * @author
@@ -18,34 +18,36 @@
 #include "io/uid-checker.h"
 #include "monster-race/monster-race.h"
 #include "monster-race/race-flags1.h"
+#include "system/angband-exceptions.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "util/angband-files.h"
 #include "view/display-messages.h"
+#include <algorithm>
+#ifdef SAVEFILE_USE_UID
+#include "main-unix/unix-user-ids.h"
+#endif
 
-concptr ANGBAND_DIR; //!< Path name: The main "lib" directory This variable is not actually used anywhere in the code
-concptr ANGBAND_DIR_APEX; //!< High score files (binary) These files may be portable between platforms
-concptr ANGBAND_DIR_BONE; //!< Bone files for player ghosts (ascii) These files are portable between platforms
-concptr ANGBAND_DIR_DATA; //!< Binary image files for the "*_info" arrays (binary) These files are not portable between platforms
-concptr ANGBAND_DIR_EDIT; //!< Textual template files for the "*_info" arrays (ascii) These files are portable between platforms
-concptr ANGBAND_DIR_SCRIPT; //!< Script files These files are portable between platforms.
-concptr ANGBAND_DIR_FILE; //!< Various extra files (ascii) These files may be portable between platforms
-concptr ANGBAND_DIR_HELP; //!< Help files (normal) for the online help (ascii) These files are portable between platforms
-concptr ANGBAND_DIR_INFO; //!< Help files (spoilers) for the online help (ascii) These files are portable between platforms
-concptr ANGBAND_DIR_PREF; //!< Default user "preference" files (ascii) These files are rarely portable between platforms
-concptr ANGBAND_DIR_SAVE; //!< Savefiles for current characters (binary)
-concptr ANGBAND_DIR_DEBUG_SAVE; //*< Savefiles for debug data
-concptr ANGBAND_DIR_USER; //!< User "preference" files (ascii) These files are rarely portable between platforms
-concptr ANGBAND_DIR_XTRA; //!< Various extra files (binary) These files are rarely portable between platforms
+std::filesystem::path ANGBAND_DIR; //!< Path name: The main "lib" directory This variable is not actually used anywhere in the code
+std::filesystem::path ANGBAND_DIR_APEX; //!< High score files (binary) These files may be portable between platforms
+std::filesystem::path ANGBAND_DIR_BONE; //!< Bone files for player ghosts (ascii) These files are portable between platforms
+std::filesystem::path ANGBAND_DIR_DATA; //!< Binary image files for the "*_info" arrays (binary) These files are not portable between platforms
+std::filesystem::path ANGBAND_DIR_EDIT; //!< Textual template files for the "*_info" arrays (ascii) These files are portable between platforms
+std::filesystem::path ANGBAND_DIR_SCRIPT; //!< Script files These files are portable between platforms.
+std::filesystem::path ANGBAND_DIR_FILE; //!< Various extra files (ascii) These files may be portable between platforms
+std::filesystem::path ANGBAND_DIR_HELP; //!< Help files (normal) for the online help (ascii) These files are portable between platforms
+std::filesystem::path ANGBAND_DIR_INFO; //!< Help files (spoilers) for the online help (ascii) These files are portable between platforms
+std::filesystem::path ANGBAND_DIR_PREF; //!< Default user "preference" files (ascii) These files are rarely portable between platforms
+std::filesystem::path ANGBAND_DIR_SAVE; //!< Savefiles for current characters (binary)
+std::filesystem::path ANGBAND_DIR_DEBUG_SAVE; //*< Savefiles for debug data
+std::filesystem::path ANGBAND_DIR_USER; //!< User "preference" files (ascii) These files are rarely portable between platforms
+std::filesystem::path ANGBAND_DIR_XTRA; //!< Various extra files (binary) These files are rarely portable between platforms
 
-/*
- * Buffer to hold the current savefile name
- * 'savefile' holds full path name. 'savefile_base' holds only base name.
- */
-char savefile[1024];
-char savefile_base[40];
-char debug_savefile[1024];
+std::filesystem::path savefile;
+std::string savefile_base;
+std::filesystem::path debug_savefile;
 
 /*!
  * @brief プレイヤーステータスをファイルダンプ出力する
@@ -57,66 +59,71 @@ char debug_savefile[1024];
  * Allow the "full" flag to dump additional info,
  * and trigger its usage from various places in the code.
  */
-errr file_character(PlayerType *player_ptr, concptr name)
+void file_character(PlayerType *player_ptr, std::string_view filename)
 {
-    char buf[1024];
-    path_build(buf, sizeof(buf), ANGBAND_DIR_USER, name);
-    int fd = fd_open(buf, O_RDONLY);
+    const auto &path = path_build(ANGBAND_DIR_USER, filename);
+    auto fd = fd_open(path, O_RDONLY);
     if (fd >= 0) {
-        char out_val[sizeof(buf) + 128];
+        const auto &path_str = path.string();
+        std::stringstream ss;
+        ss << _("現存するファイル ", "Replace existing file ") << path_str << _(" に上書きしますか? ", "? ");
         (void)fd_close(fd);
-        (void)sprintf(out_val, _("現存するファイル %s に上書きしますか? ", "Replace existing file %s? "), buf);
-        if (get_check_strict(player_ptr, out_val, CHECK_NO_HISTORY)) {
+        if (input_check_strict(player_ptr, ss.str(), UserCheck::NO_HISTORY)) {
             fd = -1;
+        } else {
+            return;
         }
     }
 
     FILE *fff = nullptr;
     if (fd < 0) {
-        fff = angband_fopen(buf, "w");
+        fff = angband_fopen(path, FileOpenMode::WRITE);
     }
 
+    constexpr auto error_msg = _("キャラクタ情報のファイルへの書き出しに失敗しました！", "Character dump failed!");
     if (!fff) {
-        prt(_("キャラクタ情報のファイルへの書き出しに失敗しました！", "Character dump failed!"), 0, 0);
-        (void)inkey();
-        return -1;
+        msg_print(error_msg);
+        msg_print(nullptr);
+        return;
     }
 
+    screen_save();
     make_character_dump(player_ptr, fff);
+    screen_load();
+
+    if (ferror(fff)) {
+        angband_fclose(fff);
+        msg_print(error_msg);
+        msg_print(nullptr);
+        return;
+    }
+
     angband_fclose(fff);
     msg_print(_("キャラクタ情報のファイルへの書き出しに成功しました。", "Character dump successful."));
     msg_print(nullptr);
-    return 0;
 }
 
 /*!
- * @brief ファイルからランダムに行を一つ取得する /
- * Get a random line from a file
+ * @brief ファイルからランダムに行を一つ取得する
  * @param file_name ファイル名
  * @param entry 特定条件時のN:タグヘッダID
- * @param output 出力先の文字列参照ポインタ
- * @return エラーコード
- * @details
- * <pre>
- * Based on the monster speech patch by Matt Graham,
- * </pre>
+ * @return ファイルから取得した行 (但しファイルがなかったり異常値ならばnullopt)
  */
-errr get_rnd_line(concptr file_name, int entry, char *output)
+std::optional<std::string> get_random_line(concptr file_name, int entry)
 {
-    char buf[1024];
-    path_build(buf, sizeof(buf), ANGBAND_DIR_FILE, file_name);
-    FILE *fp;
-    fp = angband_fopen(buf, "r");
+    const auto &path = path_build(ANGBAND_DIR_FILE, file_name);
+    auto *fp = angband_fopen(path, FileOpenMode::READ);
     if (!fp) {
-        return -1;
+        return std::nullopt;
     }
 
     int test;
-    int line_num = 0;
+    auto line_num = 0;
     while (true) {
+        char buf[1024];
         if (angband_fgets(fp, buf, sizeof(buf)) != 0) {
             angband_fclose(fp);
-            return -1;
+            return std::nullopt;
         }
 
         line_num++;
@@ -126,7 +133,9 @@ errr get_rnd_line(concptr file_name, int entry, char *output)
 
         if (buf[2] == '*') {
             break;
-        } else if (buf[2] == 'M') {
+        }
+
+        if (buf[2] == 'M') {
             if (monraces_info[i2enum<MonsterRaceId>(entry)].flags1 & RF1_MALE) {
                 break;
             }
@@ -141,24 +150,24 @@ errr get_rnd_line(concptr file_name, int entry, char *output)
         } else {
             msg_format("Error in line %d of %s!", line_num, file_name);
             angband_fclose(fp);
-            return -1;
+            return std::nullopt;
         }
     }
 
-    int counter;
-    for (counter = 0;; counter++) {
+    auto counter = 0;
+    std::optional<std::string> line{};
+    while (true) {
+        char buf[1024];
         while (true) {
-            test = angband_fgets(fp, buf, sizeof(buf));
-            if (!test) {
-                /* Ignore lines starting with 'N:' */
-                if ((buf[0] == 'N') && (buf[1] == ':')) {
-                    continue;
-                }
+            if (angband_fgets(fp, buf, sizeof(buf))) {
+                break;
+            }
 
-                if (buf[0] != '#') {
-                    break;
-                }
-            } else {
+            if ((buf[0] == 'N') && (buf[1] == ':')) {
+                continue;
+            }
+
+            if (buf[0] != '#') {
                 break;
             }
         }
@@ -168,42 +177,45 @@ errr get_rnd_line(concptr file_name, int entry, char *output)
         }
 
         if (one_in_(counter + 1)) {
-            strcpy(output, buf);
+            line = buf;
         }
+
+        counter++;
     }
 
     angband_fclose(fp);
-    return counter ? 0 : -1;
+    return line;
 }
 
 #ifdef JP
 /*!
- * @brief ファイルからランダムに行を一つ取得する(日本語文字列のみ) /
+ * @brief ファイルからランダムに行を一つ取得する(日本語文字列のみ)
  * @param file_name ファイル名
  * @param entry 特定条件時のN:タグヘッダID
- * @param output 出力先の文字列参照ポインタ
  * @param count 試行回数
- * @return エラーコード
+ * @return ファイルから取得した行 (但しファイルがなかったり異常値ならばnullopt)
  * @details
  */
-errr get_rnd_line_jonly(concptr file_name, int entry, char *output, int count)
+std::optional<std::string> get_random_line_ja_only(concptr file_name, int entry, int count)
 {
-    errr result = 1;
-    for (int i = 0; i < count; i++) {
-        result = get_rnd_line(file_name, entry, output);
-        if (result) {
-            break;
+    std::optional<std::string> line;
+    for (auto i = 0; i < count; i++) {
+        line = get_random_line(file_name, entry);
+        if (!line.has_value()) {
+            return std::nullopt;
         }
-        bool kanji = false;
-        for (int j = 0; output[j]; j++) {
-            kanji |= iskanji(output[j]);
+
+        auto is_kanji = false;
+        for (const auto c : line.value()) {
+            is_kanji |= iskanji(c);
         }
-        if (kanji) {
-            break;
+
+        if (is_kanji) {
+            return line;
         }
     }
 
-    return result;
+    return line;
 }
 #endif
 
@@ -218,12 +230,13 @@ errr get_rnd_line_jonly(concptr file_name, int entry, char *output, int count)
  */
 static errr counts_seek(PlayerType *player_ptr, int fd, uint32_t where, bool flag)
 {
-    char temp1[128], temp2[128];
+    char temp1[128]{}, temp2[128]{};
     auto short_pclass = enum2i(player_ptr->pclass);
 #ifdef SAVEFILE_USE_UID
-    (void)sprintf(temp1, "%d.%s.%d%d%d", player_ptr->player_uid, savefile_base, short_pclass, player_ptr->ppersonality, player_ptr->age);
+    const auto user_id = UnixUserIds::get_instance().get_user_id();
+    strnfmt(temp1, sizeof(temp1), "%d.%s.%d%d%d", user_id, savefile_base.data(), short_pclass, player_ptr->ppersonality, player_ptr->age);
 #else
-    (void)sprintf(temp1, "%s.%d%d%d", savefile_base, short_pclass, player_ptr->ppersonality, player_ptr->age);
+    strnfmt(temp1, sizeof(temp1), "%s.%d%d%d", savefile_base.data(), short_pclass, player_ptr->ppersonality, player_ptr->age);
 #endif
     for (int i = 0; temp1[i]; i++) {
         temp1[i] ^= (i + 1) * 63;
@@ -265,17 +278,14 @@ static errr counts_seek(PlayerType *player_ptr, int fd, uint32_t where, bool fla
  */
 uint32_t counts_read(PlayerType *player_ptr, int where)
 {
-    char buf[1024];
-    path_build(buf, sizeof(buf), ANGBAND_DIR_DATA, _("z_info_j.raw", "z_info.raw"));
-    int fd = fd_open(buf, O_RDONLY);
-
+    const auto &path = path_build(ANGBAND_DIR_DATA, _("z_info_j.raw", "z_info.raw"));
+    auto fd = fd_open(path, O_RDONLY);
     uint32_t count = 0;
     if (counts_seek(player_ptr, fd, where, false) || fd_read(fd, (char *)(&count), sizeof(uint32_t))) {
         count = 0;
     }
 
     (void)fd_close(fd);
-
     return count;
 }
 
@@ -289,20 +299,18 @@ uint32_t counts_read(PlayerType *player_ptr, int where)
  */
 errr counts_write(PlayerType *player_ptr, int where, uint32_t count)
 {
-    char buf[1024];
-    path_build(buf, sizeof(buf), ANGBAND_DIR_DATA, _("z_info_j.raw", "z_info.raw"));
-
-    safe_setuid_grab(player_ptr);
-    int fd = fd_open(buf, O_RDWR);
+    const auto &path = path_build(ANGBAND_DIR_DATA, _("z_info_j.raw", "z_info.raw"));
+    safe_setuid_grab();
+    auto fd = fd_open(path, O_RDWR);
     safe_setuid_drop();
     if (fd < 0) {
-        safe_setuid_grab(player_ptr);
-        fd = fd_make(buf, 0644);
+        safe_setuid_grab();
+        fd = fd_make(path);
         safe_setuid_drop();
     }
 
-    safe_setuid_grab(player_ptr);
-    errr err = fd_lock(fd, F_WRLCK);
+    safe_setuid_grab();
+    auto err = fd_lock(fd, F_WRLCK);
     safe_setuid_drop();
     if (err) {
         return 1;
@@ -310,7 +318,7 @@ errr counts_write(PlayerType *player_ptr, int where, uint32_t count)
 
     counts_seek(player_ptr, fd, where, true);
     fd_write(fd, (char *)(&count), sizeof(uint32_t));
-    safe_setuid_grab(player_ptr);
+    safe_setuid_grab();
     err = fd_lock(fd, F_UNLCK);
     safe_setuid_drop();
 
@@ -323,22 +331,19 @@ errr counts_write(PlayerType *player_ptr, int where, uint32_t count)
 }
 
 /*!
- * @brief 墓のアスキーアートテンプレを読み込む
- * @param buf テンプレへのバッファ
- * @param buf_size バッファの長さ
+ * @brief 墓のアスキーアートテンプレを読み込んで画面に表示する
  */
-void read_dead_file(char *buf, size_t buf_size)
+void read_dead_file()
 {
-    path_build(buf, buf_size, ANGBAND_DIR_FILE, _("dead_j.txt", "dead.txt"));
-
-    FILE *fp;
-    fp = angband_fopen(buf, "r");
+    const auto &path = path_build(ANGBAND_DIR_FILE, _("dead_j.txt", "dead.txt"));
+    auto *fp = angband_fopen(path, FileOpenMode::READ);
     if (!fp) {
         return;
     }
 
     int i = 0;
-    while (angband_fgets(fp, buf, buf_size) == 0) {
+    char buf[1024]{};
+    while (angband_fgets(fp, buf, sizeof(buf)) == 0) {
         put_str(buf, i++, 0);
     }
 

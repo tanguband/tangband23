@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 店舗処理関係のユーティリティ
  * @date 2020/03/20
  * @author Hourier
@@ -15,20 +15,14 @@
 store_type *st_ptr = nullptr;
 
 /*!
- * @brief 店舗のオブジェクト数を増やす /
- * Add the item "o_ptr" to a real stores inventory.
- * @param item 増やしたいアイテムのID
+ * @brief 店舗のオブジェクト数を増やす
+ * @param i_idx 増やしたいアイテムのインベントリID
  * @param num 増やしたい数
- * @details
- * <pre>
- * Increase, by a given amount, the number of a certain item
- * in a certain store.	This can result in zero items.
- * </pre>
  */
-void store_item_increase(INVENTORY_IDX item, ITEM_NUMBER num)
+void store_item_increase(INVENTORY_IDX i_idx, ITEM_NUMBER num)
 {
     ItemEntity *o_ptr;
-    o_ptr = &st_ptr->stock[item];
+    o_ptr = &st_ptr->stock[i_idx];
     int cnt = o_ptr->number + num;
     if (cnt > 255) {
         cnt = 255;
@@ -41,20 +35,18 @@ void store_item_increase(INVENTORY_IDX item, ITEM_NUMBER num)
 }
 
 /*!
- * @brief 店舗のオブジェクト数を削除する /
- * Remove a slot if it is empty
- * @param item 削除したいアイテムのID
+ * @brief 店舗のオブジェクト数を削除する
+ * @param i_idx 削除したいアイテムのID
  */
-void store_item_optimize(INVENTORY_IDX item)
+void store_item_optimize(INVENTORY_IDX i_idx)
 {
-    ItemEntity *o_ptr;
-    o_ptr = &st_ptr->stock[item];
-    if ((o_ptr->bi_id == 0) || (o_ptr->number != 0)) {
+    const auto *o_ptr = &st_ptr->stock[i_idx];
+    if (!o_ptr->is_valid() || (o_ptr->number != 0)) {
         return;
     }
 
     st_ptr->stock_num--;
-    for (int j = item; j < st_ptr->stock_num; j++) {
+    for (int j = i_idx; j < st_ptr->stock_num; j++) {
         st_ptr->stock[j] = st_ptr->stock[j + 1];
     }
 
@@ -152,7 +144,7 @@ bool store_object_similar(ItemEntity *o_ptr, ItemEntity *j_ptr)
         return false;
     }
 
-    if (o_ptr->is_artifact() || j_ptr->is_artifact()) {
+    if (o_ptr->is_fixed_or_random_artifact() || j_ptr->is_fixed_or_random_artifact()) {
         return false;
     }
 
@@ -189,6 +181,10 @@ bool store_object_similar(ItemEntity *o_ptr, ItemEntity *j_ptr)
         return false;
     }
 
+    if ((tval == ItemKindType::LITE) && (o_ptr->fuel != j_ptr->fuel)) {
+        return false;
+    }
+
     if (o_ptr->discount != j_ptr->discount) {
         return false;
     }
@@ -209,7 +205,7 @@ bool store_object_similar(ItemEntity *o_ptr, ItemEntity *j_ptr)
  */
 static void store_object_absorb(ItemEntity *o_ptr, ItemEntity *j_ptr)
 {
-    int max_num = (o_ptr->bi_key.tval() == ItemKindType::ROD) ? std::min(99, MAX_SHORT / baseitems_info[o_ptr->bi_id].pval) : 99;
+    int max_num = (o_ptr->bi_key.tval() == ItemKindType::ROD) ? std::min(99, MAX_SHORT / o_ptr->get_baseitem().pval) : 99;
     int total = o_ptr->number + j_ptr->number;
     int diff = (total > max_num) ? total - max_num : 0;
     o_ptr->number = (total > max_num) ? max_num : total;
@@ -239,7 +235,7 @@ int store_carry(ItemEntity *o_ptr)
     }
 
     o_ptr->ident |= IDENT_FULL_KNOWN;
-    o_ptr->inscription = 0;
+    o_ptr->inscription.reset();
     o_ptr->feeling = FEEL_NONE;
     int slot;
     for (slot = 0; slot < st_ptr->stock_num; slot++) {

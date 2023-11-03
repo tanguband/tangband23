@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief プレイヤーの種族に基づく耐性・能力の判定処理等を行うクラス
  * @date 2021/09/08
  * @author Hourier
@@ -9,6 +9,7 @@
 #include "player-base/player-class.h"
 #include "player-info/mimic-info-table.h"
 #include "player/race-info-table.h"
+#include "system/angband-exceptions.h"
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
 #include "system/player-type-definition.h"
@@ -79,7 +80,7 @@ const player_race_info *PlayerRace::get_info() const
     case MimicKindType::VAMPIRE:
         return &mimic_info.at(this->player_ptr->mimic_form);
     default:
-        throw("Invalid MimicKindType was specified!");
+        THROW_EXCEPTION(std::logic_error, "Invalid MimicKindType was specified!");
     }
 }
 
@@ -167,7 +168,7 @@ int16_t PlayerRace::speed() const
     case MimicKindType::VAMPIRE:
         return result + 3;
     default:
-        throw("Invalid MimicKindType was specified!");
+        THROW_EXCEPTION(std::logic_error, "Invalid MimicKindType was specified!");
     }
 }
 
@@ -247,4 +248,25 @@ int16_t PlayerRace::additional_constitution() const
     }
 
     return result;
+}
+
+/*!
+ * @brief 救援召喚時のモンスターシンボルを返す
+ * @param player_ptr プレイヤー情報への参照ポインタ
+ * @return シンボル文字
+ */
+char PlayerRace::get_summon_symbol() const
+{
+    auto symbol = 'N';
+    auto mmc_ptr = this->get_info();
+
+    auto l = strlen(mmc_ptr->symbol);
+    auto mul = 1;
+    for (size_t i = 0; i < l; i++) {
+        if (one_in_(mul)) {
+            symbol = mmc_ptr->symbol[i];
+        }
+        mul *= 13;
+    }
+    return symbol;
 }

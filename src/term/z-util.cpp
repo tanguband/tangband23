@@ -1,4 +1,4 @@
-﻿/* File: z-util.c */
+/* File: z-util.c */
 
 /*
  * Copyright (c) 1997 Ben Harrison
@@ -110,27 +110,30 @@ void quit(concptr str)
 void (*core_aux)(concptr) = nullptr;
 
 /*
- * Dump a core file, after printing a warning message
- * As with "quit()", try to use the "core_aux()" hook first.
+ * @brief 意図的にクラッシュさせ、コアファイルをダンプする
+ * @param str エラーメッセージ
+ * @details MSVC以外のコンパイラはpragma warning をコンパイルエラーにする.
+ * 汚いがプリプロで分岐する.
  */
 void core(concptr str)
 {
     char *crash = nullptr;
-
-    /* Use the aux function */
     if (core_aux) {
         (*core_aux)(str);
     }
 
-    /* Dump the warning string */
     if (str) {
         plog(str);
     }
 
-    /* Attempt to Crash */
-    (*crash) = (*crash);
-
-    /* Be sure we exited */
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 6011)
+#endif
+    *crash = *crash;
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
     quit("core() failed");
 }
 
@@ -302,43 +305,4 @@ int count_bits(BIT_FLAGS x)
     }
 
     return n;
-}
-
-/*!
- * @brief 平方根を切り捨て整数で返す
- * @param n 数値
- * @return 平方根
- */
-int mysqrt(int n)
-{
-    int tmp = n >> 1;
-    int tasu = 10;
-    int kaeriti = 1;
-
-    if (!tmp) {
-        if (n) {
-            return 1;
-        } else {
-            return 0;
-        }
-    }
-
-    while (tmp) {
-        if ((n / tmp) < tmp) {
-            tmp >>= 1;
-        } else {
-            break;
-        }
-    }
-    kaeriti = tmp;
-    while (tasu) {
-        if ((n / tmp) < tmp) {
-            tasu--;
-            tmp = kaeriti;
-        } else {
-            kaeriti = tmp;
-            tmp += tasu;
-        }
-    }
-    return kaeriti;
 }

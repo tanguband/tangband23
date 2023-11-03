@@ -1,4 +1,4 @@
-﻿#include "inventory/recharge-processor.h"
+#include "inventory/recharge-processor.h"
 #include "core/disturbance.h"
 #include "core/window-redrawer.h"
 #include "flavor/flavor-describer.h"
@@ -10,7 +10,7 @@
 #include "system/floor-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
-#include "util/quarks.h"
+#include "system/redrawing-flags-updater.h"
 #include "util/string-processor.h"
 #include "view/display-messages.h"
 
@@ -22,22 +22,21 @@
  */
 static void recharged_notice(PlayerType *player_ptr, ItemEntity *o_ptr)
 {
-    if (!o_ptr->inscription) {
+    if (!o_ptr->is_inscribed()) {
         return;
     }
 
-    concptr s = angband_strchr(quark_str(o_ptr->inscription), '!');
+    auto s = angband_strchr(o_ptr->inscription->data(), '!');
     while (s) {
         if (s[1] == '!') {
-            GAME_TEXT o_name[MAX_NLEN];
-            describe_flavor(player_ptr, o_name, o_ptr, (OD_OMIT_PREFIX | OD_NAME_ONLY));
+            const auto item_name = describe_flavor(player_ptr, o_ptr, (OD_OMIT_PREFIX | OD_NAME_ONLY));
 #ifdef JP
-            msg_format("%sは再充填された。", o_name);
+            msg_format("%sは再充填された。", item_name.data());
 #else
             if (o_ptr->number > 1) {
-                msg_format("Your %s are recharged.", o_name);
+                msg_format("Your %s are recharged.", item_name.data());
             } else {
-                msg_format("Your %s is recharged.", o_name);
+                msg_format("Your %s is recharged.", item_name.data());
             }
 #endif
             disturb(player_ptr, false, false);
@@ -59,7 +58,7 @@ void recharge_magic_items(PlayerType *player_ptr)
 
     for (changed = false, i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
         auto *o_ptr = &player_ptr->inventory_list[i];
-        if (!o_ptr->bi_id) {
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
@@ -72,8 +71,9 @@ void recharge_magic_items(PlayerType *player_ptr)
         }
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     if (changed) {
-        player_ptr->window_flags |= (PW_EQUIP);
+        rfu.set_flag(SubWindowRedrawingFlag::EQUIPMENT);
         wild_regen = 20;
     }
 
@@ -84,8 +84,8 @@ void recharge_magic_items(PlayerType *player_ptr)
      */
     for (changed = false, i = 0; i < INVEN_PACK; i++) {
         auto *o_ptr = &player_ptr->inventory_list[i];
-        const auto &baseitem = baseitems_info[o_ptr->bi_id];
-        if (!o_ptr->bi_id) {
+        const auto &baseitem = o_ptr->get_baseitem();
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
@@ -110,7 +110,7 @@ void recharge_magic_items(PlayerType *player_ptr)
     }
 
     if (changed) {
-        player_ptr->window_flags |= (PW_INVEN);
+        rfu.set_flag(SubWindowRedrawingFlag::INVENTORY);
         wild_regen = 20;
     }
 

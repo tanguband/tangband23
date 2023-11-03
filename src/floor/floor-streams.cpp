@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ダンジョン生成に利用する関数群 / Used by dungeon generation.
  * @date 2014/07/15
  * @author
@@ -103,6 +103,7 @@ static void recursive_river(FloorType *floor_ptr, POSITION x1, POSITION y1, POSI
         }
     } else {
         /* Actually build the river */
+        const auto &terrains = TerrainList::get_instance();
         for (l = 0; l < length; l++) {
             x = x1 + l * (x2 - x1) / length;
             y = y1 + l * (y2 - y1) / length;
@@ -148,8 +149,8 @@ static void recursive_river(FloorType *floor_ptr, POSITION x1, POSITION y1, POSI
                         g_ptr->mimic = 0;
 
                         /* Lava terrain glows */
-                        if (terrains_info[feat1].flags.has(TerrainCharacteristics::LAVA)) {
-                            if (dungeons_info[floor_ptr->dungeon_idx].flags.has_not(DungeonFeatureType::DARKNESS)) {
+                        if (terrains[feat1].flags.has(TerrainCharacteristics::LAVA)) {
+                            if (floor_ptr->get_dungeon_definition().flags.has_not(DungeonFeatureType::DARKNESS)) {
                                 g_ptr->info |= CAVE_GLOW;
                             }
                         }
@@ -173,16 +174,15 @@ static void recursive_river(FloorType *floor_ptr, POSITION x1, POSITION y1, POSI
  */
 void add_river(FloorType *floor_ptr, dun_data_type *dd_ptr)
 {
-    dungeon_type *dungeon_ptr;
     POSITION y2, x2;
     POSITION y1 = 0, x1 = 0;
     POSITION wid;
     FEAT_IDX feat1 = 0, feat2 = 0;
 
-    dungeon_ptr = &dungeons_info[floor_ptr->dungeon_idx];
+    const auto &dungeon = floor_ptr->get_dungeon_definition();
 
     /* Choose water mainly */
-    if ((randint1(MAX_DEPTH * 2) - 1 > floor_ptr->dun_level) && dungeon_ptr->flags.has(DungeonFeatureType::WATER_RIVER)) {
+    if ((randint1(MAX_DEPTH * 2) - 1 > floor_ptr->dun_level) && dungeon.flags.has(DungeonFeatureType::WATER_RIVER)) {
         feat1 = feat_deep_water;
         feat2 = feat_shallow_water;
     } else /* others */
@@ -191,17 +191,17 @@ void add_river(FloorType *floor_ptr, dun_data_type *dd_ptr)
         FEAT_IDX select_shallow_feat[10];
         int select_id_max = 0, selected;
 
-        if (dungeon_ptr->flags.has(DungeonFeatureType::LAVA_RIVER)) {
+        if (dungeon.flags.has(DungeonFeatureType::LAVA_RIVER)) {
             select_deep_feat[select_id_max] = feat_deep_lava;
             select_shallow_feat[select_id_max] = feat_shallow_lava;
             select_id_max++;
         }
-        if (dungeon_ptr->flags.has(DungeonFeatureType::POISONOUS_RIVER)) {
+        if (dungeon.flags.has(DungeonFeatureType::POISONOUS_RIVER)) {
             select_deep_feat[select_id_max] = feat_deep_poisonous_puddle;
             select_shallow_feat[select_id_max] = feat_shallow_poisonous_puddle;
             select_id_max++;
         }
-        if (dungeon_ptr->flags.has(DungeonFeatureType::ACID_RIVER)) {
+        if (dungeon.flags.has(DungeonFeatureType::ACID_RIVER)) {
             select_deep_feat[select_id_max] = feat_deep_acid_puddle;
             select_shallow_feat[select_id_max] = feat_shallow_acid_puddle;
             select_id_max++;
@@ -217,11 +217,11 @@ void add_river(FloorType *floor_ptr, dun_data_type *dd_ptr)
     }
 
     if (feat1) {
-        auto *f_ptr = &terrains_info[feat1];
+        const auto &terrain = TerrainList::get_instance()[feat1];
         auto is_lava = dd_ptr->laketype == LAKE_T_LAVA;
-        is_lava &= f_ptr->flags.has(TerrainCharacteristics::LAVA);
+        is_lava &= terrain.flags.has(TerrainCharacteristics::LAVA);
         auto is_water = dd_ptr->laketype == LAKE_T_WATER;
-        is_water &= f_ptr->flags.has(TerrainCharacteristics::WATER);
+        is_water &= terrain.flags.has(TerrainCharacteristics::WATER);
         const auto should_add_river = !is_lava && !is_water && (dd_ptr->laketype != 0);
         if (should_add_river) {
             return;
@@ -296,9 +296,9 @@ void build_streamer(PlayerType *player_ptr, FEAT_IDX feat, int chance)
     grid_type *g_ptr;
     TerrainType *f_ptr;
 
-    TerrainType *streamer_ptr = &terrains_info[feat];
-    bool streamer_is_wall = streamer_ptr->flags.has(TerrainCharacteristics::WALL) && streamer_ptr->flags.has_not(TerrainCharacteristics::PERMANENT);
-    bool streamer_may_have_gold = streamer_ptr->flags.has(TerrainCharacteristics::MAY_HAVE_GOLD);
+    const auto &streamer = TerrainList::get_instance()[feat];
+    bool streamer_is_wall = streamer.flags.has(TerrainCharacteristics::WALL) && streamer.flags.has_not(TerrainCharacteristics::PERMANENT);
+    bool streamer_may_have_gold = streamer.flags.has(TerrainCharacteristics::MAY_HAVE_GOLD);
 
     /* Hack -- Choose starting point */
     auto *floor_ptr = player_ptr->current_floor_ptr;
@@ -350,12 +350,12 @@ void build_streamer(PlayerType *player_ptr, FEAT_IDX feat, int chance)
             }
 
             auto *r_ptr = &monraces_info[floor_ptr->m_list[g_ptr->m_idx].r_idx];
-            if (g_ptr->m_idx && !(streamer_ptr->flags.has(TerrainCharacteristics::PLACE) && monster_can_cross_terrain(player_ptr, feat, r_ptr, 0))) {
+            if (g_ptr->m_idx && !(streamer.flags.has(TerrainCharacteristics::PLACE) && monster_can_cross_terrain(player_ptr, feat, r_ptr, 0))) {
                 /* Delete the monster (if any) */
                 delete_monster(player_ptr, ty, tx);
             }
 
-            if (!g_ptr->o_idx_list.empty() && streamer_ptr->flags.has_not(TerrainCharacteristics::DROP)) {
+            if (!g_ptr->o_idx_list.empty() && streamer.flags.has_not(TerrainCharacteristics::DROP)) {
 
                 /* Scan all objects in the grid */
                 for (const auto this_o_idx : g_ptr->o_idx_list) {
@@ -363,14 +363,12 @@ void build_streamer(PlayerType *player_ptr, FEAT_IDX feat, int chance)
 
                     /* Hack -- Preserve unknown artifacts */
                     if (o_ptr->is_fixed_artifact()) {
-                        artifacts_info.at(o_ptr->fixed_artifact_idx).is_generated = false;
-
+                        o_ptr->get_fixed_artifact().is_generated = false;
                         if (cheat_peek) {
-                            GAME_TEXT o_name[MAX_NLEN];
-                            describe_flavor(player_ptr, o_name, o_ptr, (OD_NAME_ONLY | OD_STORE));
-                            msg_format(_("伝説のアイテム (%s) はストリーマーにより削除された。", "Artifact (%s) was deleted by streamer."), o_name);
+                            const auto item_name = describe_flavor(player_ptr, o_ptr, (OD_NAME_ONLY | OD_STORE));
+                            msg_format(_("伝説のアイテム (%s) はストリーマーにより削除された。", "Artifact (%s) was deleted by streamer."), item_name.data());
                         }
-                    } else if (cheat_peek && o_ptr->art_name) {
+                    } else if (cheat_peek && o_ptr->is_random_artifact()) {
                         msg_print(_("ランダム・アーティファクトの1つはストリーマーにより削除された。", "One of the random artifacts was deleted by streamer."));
                     }
                 }
@@ -472,7 +470,7 @@ void place_trees(PlayerType *player_ptr, POSITION x, POSITION y)
                 g_ptr->mimic = 0;
 
                 /* Light area since is open above */
-                if (dungeons_info[player_ptr->dungeon_idx].flags.has_not(DungeonFeatureType::DARKNESS)) {
+                if (floor_ptr->get_dungeon_definition().flags.has_not(DungeonFeatureType::DARKNESS)) {
                     floor_ptr->grid_array[j][i].info |= (CAVE_GLOW | CAVE_ROOM);
                 }
             }

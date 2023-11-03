@@ -1,4 +1,4 @@
-﻿#include "info-reader/race-reader.h"
+#include "info-reader/race-reader.h"
 #include "info-reader/info-reader-util.h"
 #include "info-reader/parse-error-types.h"
 #include "info-reader/race-info-tokens-table.h"
@@ -25,10 +25,6 @@ static bool grab_one_basic_flag(MonsterRaceInfo *r_ptr, std::string_view what)
     }
 
     if (info_grab_one_flag(r_ptr->flags2, r_info_flags2, what)) {
-        return true;
-    }
-
-    if (info_grab_one_flag(r_ptr->flags3, r_info_flags3, what)) {
         return true;
     }
 
@@ -77,6 +73,10 @@ static bool grab_one_basic_flag(MonsterRaceInfo *r_ptr, std::string_view what)
     }
 
     if (EnumClassFlagGroup<MonsterSpeakType>::grab_one_flag(r_ptr->speak_flags, r_info_speak_flags, what)) {
+        return true;
+    }
+
+    if (EnumClassFlagGroup<MonsterBrightnessType>::grab_one_flag(r_ptr->brightness_flags, r_info_brightness_flags, what)) {
         return true;
     }
 
@@ -225,7 +225,7 @@ errr parse_monraces_info(std::string_view buf, angband_header *)
         // B:blow_type:blow_effect:dice
         size_t i = 0;
         for (; i < 4; i++) {
-            if (r_ptr->blow[i].method == RaceBlowMethodType::NONE) {
+            if (r_ptr->blows[i].method == RaceBlowMethodType::NONE) {
                 break;
             }
         }
@@ -251,16 +251,16 @@ errr parse_monraces_info(std::string_view buf, angband_header *)
             return PARSE_ERROR_INVALID_FLAG;
         }
 
-        r_ptr->blow[i].method = rbm->second;
-        r_ptr->blow[i].effect = rbe->second;
+        r_ptr->blows[i].method = rbm->second;
+        r_ptr->blows[i].effect = rbe->second;
 
         if (tokens.size() < 4) {
             return PARSE_ERROR_NONE;
         }
 
         const auto &dice = str_split(tokens[3], 'd', false, 2);
-        info_set_value(r_ptr->blow[i].d_dice, dice[0]);
-        info_set_value(r_ptr->blow[i].d_side, dice[1]);
+        info_set_value(r_ptr->blows[i].d_dice, dice[0]);
+        info_set_value(r_ptr->blows[i].d_side, dice[1]);
     } else if (tokens[0] == "F") {
         // F:flags
         if (tokens.size() < 2 || tokens[1].size() == 0) {

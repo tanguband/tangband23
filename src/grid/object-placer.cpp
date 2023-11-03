@@ -1,4 +1,4 @@
-﻿#include "grid/object-placer.h"
+#include "grid/object-placer.h"
 #include "floor/cave.h"
 #include "floor/floor-object.h"
 #include "grid/grid.h"
@@ -90,7 +90,7 @@ void place_object(PlayerType *player_ptr, POSITION y, POSITION x, BIT_FLAGS mode
     OBJECT_IDX o_idx = o_pop(floor_ptr);
     if (o_idx == 0) {
         if (q_ptr->is_fixed_artifact()) {
-            artifacts_info.at(q_ptr->fixed_artifact_idx).is_generated = false;
+            q_ptr->get_fixed_artifact().is_generated = false;
         }
 
         return;

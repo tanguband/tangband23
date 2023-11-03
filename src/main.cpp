@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 1997 Ben Harrison, and others
  *
  * This software may be copied and distributed for educational, research,
@@ -11,10 +11,10 @@
 #include "core/scores.h"
 #include "game-option/runtime-arguments.h"
 #include "io/files-util.h"
-#include "io/inet.h"
 #include "io/record-play-movie.h"
 #include "io/signal-handlers.h"
 #include "io/uid-checker.h"
+#include "main-unix/unix-user-ids.h"
 #include "main/angband-initializer.h"
 #include "player/process-name.h"
 #include "system/angband-version.h"
@@ -28,6 +28,7 @@
 #include "view/display-scores.h"
 #include "wizard/spoiler-util.h"
 #include "wizard/wizard-spoiler.h"
+#include <filesystem>
 #include <string>
 
 /*
@@ -55,14 +56,15 @@ static void quit_hook(concptr s)
     (void)s;
 
     /* Scan windows */
-    for (auto i = static_cast<int>(angband_terms.size()); i >= 0; i--) {
+    for (auto it = angband_terms.rbegin(); it != angband_terms.rend(); ++it) {
+        auto term = *it;
         /* Unused */
-        if (!angband_terms[i]) {
+        if (term == nullptr) {
             continue;
         }
 
         /* Nuke it */
-        term_nuke(angband_terms[i]);
+        term_nuke(term);
     }
 }
 
@@ -79,71 +81,27 @@ static void quit_hook(concptr s)
  */
 static void create_user_dir(void)
 {
-    char dirpath[1024];
-    char subdirpath[1024];
+    const auto &dirpath = path_parse(PRIVATE_USER_PATH);
+    const auto &dir_str = dirpath.string();
+    mkdir(dir_str.data(), 0700);
 
-    /* Get an absolute path from the filename */
-    path_parse(dirpath, 1024, PRIVATE_USER_PATH);
-
-    /* Create the ~/.angband/ directory */
-    mkdir(dirpath, 0700);
-
-    /* Build the path to the variant-specific sub-directory */
-    path_build(subdirpath, sizeof(subdirpath), dirpath, VARIANT_NAME.data());
-
-    /* Create the directory */
-    mkdir(subdirpath, 0700);
+    const auto &subdirpath = path_build(dirpath, VARIANT_NAME);
+    const auto &subdir_str = subdirpath.string();
+    mkdir(subdir_str.data(), 0700);
 }
 
 #endif /* PRIVATE_USER_PATH */
 
-/*
- * Initialize and verify the file paths, and the score file.
- *
- * Use the ANGBAND_PATH environment var if possible, else use
- * DEFAULT_(LIB|VAR)_PATH, and in either case, branch off
- * appropriately.
- *
- * First, we'll look for the ANGBAND_PATH environment variable,
- * and then look for the files in there.  If that doesn't work,
- * we'll try the DEFAULT_(LIB|VAR)_PATH constants.  So be sure
- * that one of these two things works...
- *
- * We must ensure that the path ends with "PATH_SEP" if needed,
- * since the "init_file_paths()" function will simply append the
- * relevant "sub-directory names" to the given path.
- *
- * Make sure that the path doesn't overflow the buffer.  We have
- * to leave enough space for the path separator, directory, and
- * filenames.
- */
-static void init_stuff(void)
+static void init_stuff()
 {
-    char libpath[1024], varpath[1024];
-
-    concptr tail;
-
-    /* Get the environment variable */
-    tail = getenv("ANGBAND_PATH");
-
-    /* Use the angband_path, or a default */
+    char libpath[1024]{};
+    const auto tail = getenv("ANGBAND_PATH");
     strncpy(libpath, tail ? tail : DEFAULT_LIB_PATH, 511);
-    strncpy(varpath, tail ? tail : DEFAULT_VAR_PATH, 511);
-
-    /* Make sure they're terminated */
-    libpath[511] = '\0';
-    varpath[511] = '\0';
-
-    /* Hack -- Add a path separator (only if needed) */
     if (!suffix(libpath, PATH_SEP)) {
         strcat(libpath, PATH_SEP);
     }
-    if (!suffix(varpath, PATH_SEP)) {
-        strcat(varpath, PATH_SEP);
-    }
 
-    /* Initialize */
-    init_file_paths(libpath, varpath);
+    init_file_paths(libpath);
 }
 
 /*
@@ -157,87 +115,49 @@ static void init_stuff(void)
  */
 static void change_path(concptr info)
 {
-    concptr s;
-
-    /* Find equal sign */
-    s = angband_strchr(info, '=');
+    const auto s = angband_strchr(info, '=');
 
     /* Verify equal sign */
     if (!s) {
         quit_fmt("Try '-d<what>=<path>' not '-d%s'", info);
     }
 
-    /* Analyze */
     switch (tolower(info[0])) {
-    case 'a': {
-        string_free(ANGBAND_DIR_APEX);
-        ANGBAND_DIR_APEX = string_make(s + 1);
+    case 'a':
+        ANGBAND_DIR_APEX = s + 1;
         break;
-    }
-
-    case 'f': {
-        string_free(ANGBAND_DIR_FILE);
-        ANGBAND_DIR_FILE = string_make(s + 1);
+    case 'f':
+        ANGBAND_DIR_FILE = s + 1;
         break;
-    }
-
-    case 'h': {
-        string_free(ANGBAND_DIR_HELP);
-        ANGBAND_DIR_HELP = string_make(s + 1);
+    case 'h':
+        ANGBAND_DIR_HELP = s + 1;
         break;
-    }
-
-    case 'i': {
-        string_free(ANGBAND_DIR_INFO);
-        ANGBAND_DIR_INFO = string_make(s + 1);
+    case 'i':
+        ANGBAND_DIR_INFO = s + 1;
         break;
-    }
-
-    case 'u': {
-        string_free(ANGBAND_DIR_USER);
-        ANGBAND_DIR_USER = string_make(s + 1);
+    case 'u':
+        ANGBAND_DIR_USER = s + 1;
         break;
-    }
-
-    case 'x': {
-        string_free(ANGBAND_DIR_XTRA);
-        ANGBAND_DIR_XTRA = string_make(s + 1);
+    case 'x':
+        ANGBAND_DIR_XTRA = s + 1;
         break;
-    }
-
-    case 'b': {
-        string_free(ANGBAND_DIR_BONE);
-        ANGBAND_DIR_BONE = string_make(s + 1);
+    case 'b':
+        ANGBAND_DIR_BONE = s + 1;
         break;
-    }
-
-    case 'd': {
-        string_free(ANGBAND_DIR_DATA);
-        ANGBAND_DIR_DATA = string_make(s + 1);
+    case 'd':
+        ANGBAND_DIR_DATA = s + 1;
         break;
-    }
-
-    case 'e': {
-        string_free(ANGBAND_DIR_EDIT);
-        ANGBAND_DIR_EDIT = string_make(s + 1);
+    case 'e':
+        ANGBAND_DIR_EDIT = s + 1;
         break;
-    }
-
-    case 's': {
-        string_free(ANGBAND_DIR_SAVE);
-        ANGBAND_DIR_SAVE = string_make(s + 1);
+    case 's':
+        ANGBAND_DIR_SAVE = s + 1;
         break;
-    }
-
-    case 'z': {
-        string_free(ANGBAND_DIR_SCRIPT);
-        ANGBAND_DIR_SCRIPT = string_make(s + 1);
+    case 'z':
+        ANGBAND_DIR_SCRIPT = s + 1;
         break;
-    }
-
-    default: {
+    default:
         quit_fmt("Bad semantics in '-d%s'", info);
-    }
     }
 }
 
@@ -329,121 +249,84 @@ static bool parse_long_opt(const char *opt)
  */
 int main(int argc, char *argv[])
 {
-    int i;
-
-    bool done = false;
-    bool new_game = false;
-    int show_score = 0;
+    auto done = false;
+    auto new_game = false;
+    auto show_score = 0;
     concptr mstr = nullptr;
-    bool args = true;
-
-    /* Save the "program name" XXX XXX XXX */
+    auto args = true;
     argv0 = argv[0];
 
 #ifdef SET_UID
-
     /* Default permissions on files */
     (void)umask(022);
-
 #endif
 
-    /* Get the file paths */
     init_stuff();
-
+    auto &ids = UnixUserIds::get_instance();
 #ifdef SET_UID
-
-    /* Get the user id (?) */
-    p_ptr->player_uid = getuid();
-
+    ids.set_user_id(getuid());
 #ifdef VMS
-    /* Mega-Hack -- Factor group id */
-    p_ptr->player_uid += (getgid() * 1000);
+    ids.mod_user_id(getgid() * 1000);
 #endif
 
-#ifdef SAFE_SETUID
-
-#ifdef _POSIX_SAVED_IDS
-
-    /* Save some info for later */
-    p_ptr->player_euid = geteuid();
-    p_ptr->player_egid = getegid();
-
+#if defined(SAFE_SETUID) && defined(_POSIX_SAVED_IDS)
+    ids.set_effective_user_id(geteuid());
+    ids.set_effective_group_id(getegid());
 #endif
-
-#endif
-
-#endif
-
-    /* Drop permissions */
-    safe_setuid_drop();
-
-#ifdef SET_UID
-
-    /* Acquire the "user name" as a default player name */
-    user_name(p_ptr->name, p_ptr->player_uid);
-
-#ifdef PRIVATE_USER_PATH
-
-    /* Create a directory for the users files. */
-    create_user_dir();
-
-#endif /* PRIVATE_USER_PATH */
 
 #endif /* SET_UID */
 
-    /* Process the command line arguments */
-    bool browsing_movie = false;
-    for (i = 1; args && (i < argc); i++) {
-        /* Require proper options */
+    safe_setuid_drop();
+#ifdef SET_UID
+    user_name(p_ptr->name, ids.get_user_id());
+#ifdef PRIVATE_USER_PATH
+    create_user_dir();
+#endif /* PRIVATE_USER_PATH */
+#endif /* SET_UID */
+
+    auto browsing_movie = false;
+    for (auto i = 1; args && (i < argc); i++) {
         if (argv[i][0] != '-') {
             display_usage(argv[0]);
             continue;
         }
 
-        /* Analyze option */
-        bool is_usage_needed = false;
+        auto is_usage_needed = false;
         switch (argv[i][1]) {
         case 'N':
-        case 'n': {
+        case 'n':
             new_game = true;
             break;
-        }
         case 'B':
-        case 'b': {
+        case 'b':
             arg_music = true;
             break;
-        }
         case 'V':
-        case 'v': {
+        case 'v':
             arg_sound = true;
             break;
-        }
         case 'G':
-        case 'g': {
-            /* HACK - Graphics mode switches on the original tiles */
+        case 'g':
             arg_graphics = GRAPHICS_ORIGINAL;
             break;
-        }
         case 'R':
-        case 'r': {
+        case 'r':
             arg_force_roguelike = true;
             break;
-        }
         case 'O':
-        case 'o': {
+        case 'o':
             arg_force_original = true;
             break;
-        }
         case 'S':
-        case 's': {
+        case 's':
             show_score = atoi(&argv[i][2]);
             if (show_score <= 0) {
                 show_score = 10;
             }
+
             break;
-        }
         case 'u':
-        case 'U': {
+        case 'U':
             if (!argv[i][2]) {
                 is_usage_needed = true;
                 break;
@@ -451,8 +334,7 @@ int main(int argc, char *argv[])
 
             strcpy(p_ptr->name, &argv[i][2]);
             break;
-        }
-        case 'm': {
+        case 'm':
             if (!argv[i][2]) {
                 is_usage_needed = true;
                 break;
@@ -460,17 +342,14 @@ int main(int argc, char *argv[])
 
             mstr = &argv[i][2];
             break;
-        }
-        case 'M': {
+        case 'M':
             arg_monochrome = true;
             break;
-        }
         case 'd':
-        case 'D': {
+        case 'D':
             change_path(&argv[i][2]);
             break;
-        }
-        case 'x': {
+        case 'x':
             if (!argv[i][2]) {
                 is_usage_needed = true;
                 break;
@@ -479,8 +358,7 @@ int main(int argc, char *argv[])
             prepare_browse_movie_with_path_build(&argv[i][2]);
             browsing_movie = true;
             break;
-        }
-        case '-': {
+        case '-':
             if (argv[i][2] == '\0') {
                 argv[i] = argv[0];
                 argc = argc - i;
@@ -489,12 +367,11 @@ int main(int argc, char *argv[])
             } else {
                 is_usage_needed = parse_long_opt(argv[i]);
             }
+
             break;
-        }
-        default: {
+        default:
             is_usage_needed = true;
             break;
-        }
         }
 
         if (!is_usage_needed) {
@@ -504,20 +381,15 @@ int main(int argc, char *argv[])
         display_usage(argv[0]);
     }
 
-    /* Hack -- Forget standard args */
     if (args) {
         argc = 1;
         argv[1] = nullptr;
     }
 
-    /* Process the player name */
     process_player_name(p_ptr, true);
-
-    /* Install "quit" hook */
     quit_aux = quit_hook;
 
 #ifdef USE_X11
-    /* Attempt to use the "main-x11.c" support */
     if (!done && (!mstr || (streq(mstr, "x11")))) {
         extern errr init_x11(int, char **);
         if (0 == init_x11(argc, argv)) {
@@ -528,7 +400,6 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef USE_GCU
-    /* Attempt to use the "main-gcu.c" support */
     if (!done && (!mstr || (streq(mstr, "gcu")))) {
         extern errr init_gcu(int, char **);
         if (0 == init_gcu(argc, argv)) {
@@ -539,7 +410,6 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef USE_CAP
-    /* Attempt to use the "main-cap.c" support */
     if (!done && (!mstr || (streq(mstr, "cap")))) {
         extern errr init_cap(int, char **);
         if (0 == init_cap(argc, argv)) {
@@ -549,32 +419,24 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    /* Make sure we have a display! */
     if (!done) {
         quit("Unable to prepare any 'display module'!");
     }
 
-    /* Hack -- If requested, display scores and quit */
     if (show_score > 0) {
         display_scores(0, show_score);
     }
 
-    /* Catch nasty signals */
     signals_init();
 
-    /* Initialize */
-    init_angband(p_ptr, false);
+    {
+        TermCenteredOffsetSetter tcos(MAIN_TERM_MIN_COLS, MAIN_TERM_MIN_ROWS);
+        init_angband(p_ptr, false);
+        pause_line(MAIN_TERM_MIN_ROWS - 1);
+    }
 
-    /* Wait for response */
-    pause_line(23);
-
-    /* Play the game */
     play_game(p_ptr, new_game, browsing_movie);
-
-    /* Quit */
     quit(nullptr);
-
-    /* Exit */
     return 0;
 }
 

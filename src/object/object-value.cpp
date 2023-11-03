@@ -1,6 +1,5 @@
-﻿#include "object/object-value.h"
+#include "object/object-value.h"
 #include "monster-race/monster-race.h"
-#include "object/object-flags.h"
 #include "object/object-value-calc.h"
 #include "object/tval-types.h"
 #include "system/artifact-type-definition.h"
@@ -37,30 +36,30 @@
  */
 PRICE object_value_real(const ItemEntity *o_ptr)
 {
-    const auto &baseitem = baseitems_info[o_ptr->bi_id];
+    const auto &baseitem = o_ptr->get_baseitem();
 
-    if (!baseitems_info[o_ptr->bi_id].cost) {
+    if (!baseitem.cost) {
         return 0;
     }
 
-    PRICE value = baseitems_info[o_ptr->bi_id].cost;
-    auto flgs = object_flags(o_ptr);
+    PRICE value = baseitem.cost;
+    const auto flags = o_ptr->get_flags();
     if (o_ptr->is_fixed_artifact()) {
-        const auto &a_ref = artifacts_info.at(o_ptr->fixed_artifact_idx);
-        if (!a_ref.cost) {
+        const auto &artifact = o_ptr->get_fixed_artifact();
+        if (!artifact.cost) {
             return 0;
         }
 
-        value = a_ref.cost;
+        value = artifact.cost;
         value += flag_cost(o_ptr, o_ptr->pval);
         return value;
     } else if (o_ptr->is_ego()) {
-        const auto &e_ref = egos_info[o_ptr->ego_idx];
-        if (!e_ref.cost) {
+        const auto &ego = o_ptr->get_ego();
+        if (!ego.cost) {
             return 0;
         }
 
-        value += e_ref.cost;
+        value += ego.cost;
         value += flag_cost(o_ptr, o_ptr->pval);
     } else {
         if (o_ptr->art_flags.any()) {
@@ -97,43 +96,43 @@ PRICE object_value_real(const ItemEntity *o_ptr)
             return 0;
         }
 
-        if (flgs.has(TR_STR)) {
+        if (flags.has(TR_STR)) {
             value += (o_ptr->pval * 200L);
         }
-        if (flgs.has(TR_INT)) {
+        if (flags.has(TR_INT)) {
             value += (o_ptr->pval * 200L);
         }
-        if (flgs.has(TR_WIS)) {
+        if (flags.has(TR_WIS)) {
             value += (o_ptr->pval * 200L);
         }
-        if (flgs.has(TR_DEX)) {
+        if (flags.has(TR_DEX)) {
             value += (o_ptr->pval * 200L);
         }
-        if (flgs.has(TR_CON)) {
+        if (flags.has(TR_CON)) {
             value += (o_ptr->pval * 200L);
         }
-        if (flgs.has(TR_CHR)) {
+        if (flags.has(TR_CHR)) {
             value += (o_ptr->pval * 200L);
         }
-        if (flgs.has(TR_MAGIC_MASTERY)) {
+        if (flags.has(TR_MAGIC_MASTERY)) {
             value += (o_ptr->pval * 100);
         }
-        if (flgs.has(TR_STEALTH)) {
+        if (flags.has(TR_STEALTH)) {
             value += (o_ptr->pval * 100L);
         }
-        if (flgs.has(TR_SEARCH)) {
+        if (flags.has(TR_SEARCH)) {
             value += (o_ptr->pval * 100L);
         }
-        if (flgs.has(TR_INFRA)) {
+        if (flags.has(TR_INFRA)) {
             value += (o_ptr->pval * 50L);
         }
-        if (flgs.has(TR_TUNNEL)) {
+        if (flags.has(TR_TUNNEL)) {
             value += (o_ptr->pval * 50L);
         }
-        if (flgs.has(TR_BLOWS)) {
+        if (flags.has(TR_BLOWS)) {
             value += (o_ptr->pval * 5000L);
         }
-        if (flgs.has(TR_SPEED)) {
+        if (flags.has(TR_SPEED)) {
             value += (o_ptr->pval * 10000L);
         }
         break;

@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file random-art-characteristics.cpp
  * @brief ランダムアーティファクトのバイアス付加処理実装
  */
@@ -9,7 +9,6 @@
 #include "io/files-util.h"
 #include "object-enchant/tr-types.h"
 #include "object-enchant/trc-types.h"
-#include "object/object-flags.h"
 #include "player-base/player-class.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
@@ -103,111 +102,110 @@ void curse_artifact(PlayerType *player_ptr, ItemEntity *o_ptr)
  * @param armour 防具かどうか
  * @param power 生成パワー
  * @return ファイル名
- * @detail ss << tmp_grade; と直接呼ぶとC4866警告が出るので、別変数で受けて抑制中.
  */
 static std::string get_random_art_filename(const bool armour, const int power)
 {
-    const std::string_view prefix(armour ? "a_" : "w_");
-    constexpr std::string_view suffix(_("_j.txt", ".txt"));
-    std::string_view tmp_grade;
+    std::stringstream ss;
+    ss << (armour ? "a_" : "w_");
     switch (power) {
     case 0:
-        tmp_grade = "cursed";
+        ss << "cursed";
         break;
     case 1:
-        tmp_grade = "low";
+        ss << "low";
         break;
     case 2:
-        tmp_grade = "med";
+        ss << "med";
         break;
     default:
-        tmp_grade = "high";
+        ss << "high";
     }
 
-    std::stringstream ss;
-    const auto &grade = tmp_grade;
-    ss << prefix << grade << suffix;
+    ss << _("_j.txt", ".txt");
     return ss.str();
 }
 
 /*!
  * @brief ランダムアーティファクト生成中、対象のオブジェクトに名前を与える.
  * @param o_ptr 処理中のアイテム参照ポインタ
- * @param return_name 名前を返すための文字列参照ポインタ
  * @param armour 対象のオブジェクトが防具が否か
  * @param power 銘の基準となるオブジェクトの価値レベル(0=呪い、1=低位、2=中位、3以上=高位)
+ * @return ランダムアーティファクト名
  * @details 確率によって、シンダリン銘、漢字銘 (anameからランダム)、固定名のいずれか一つが与えられる.
  * シンダリン銘：10%、漢字銘18%、固定銘72% (固定銘が尽きていたら漢字銘になることもある).
  */
-void get_random_name(ItemEntity *o_ptr, char *return_name, bool armour, int power)
+std::string get_random_name(const ItemEntity &item, bool armour, int power)
 {
     const auto prob = randint1(100);
     constexpr auto chance_sindarin = 10;
     if (prob <= chance_sindarin) {
-        get_table_sindarin(return_name);
-        return;
+        return get_table_sindarin();
     }
 
     constexpr auto chance_table = 20;
     if (prob <= chance_table) {
-        get_table_name(return_name);
-        return;
+        return get_table_name();
     }
 
     auto filename = get_random_art_filename(armour, power);
-    (void)get_rnd_line(filename.data(), o_ptr->artifact_bias, return_name);
+    auto random_artifact_name = get_random_line(filename.data(), item.artifact_bias);
 #ifdef JP
-    if (return_name[0] == 0) {
-        get_table_name(return_name);
+    if (random_artifact_name.has_value()) {
+        return random_artifact_name.value();
     }
+
+    return get_table_name();
+#else
+    return random_artifact_name.value();
 #endif
 }
 
 /*対邪平均ダメージの計算処理*/
 static int calc_arm_avgdamage(PlayerType *player_ptr, ItemEntity *o_ptr)
 {
-    auto flgs = object_flags(o_ptr);
+    const auto flags = o_ptr->get_flags();
     int base, forced, vorpal;
     int s_evil = forced = vorpal = 0;
     int dam = base = (o_ptr->dd * o_ptr->ds + o_ptr->dd) / 2;
-    if (flgs.has(TR_KILL_EVIL)) {
+    if (flags.has(TR_KILL_EVIL)) {
         dam = s_evil = dam * 7 / 2;
-    } else if (flgs.has_not(TR_KILL_EVIL) && flgs.has(TR_SLAY_EVIL)) {
+    } else if (flags.has_not(TR_KILL_EVIL) && flags.has(TR_SLAY_EVIL)) {
         dam = s_evil = dam * 2;
     } else {
         s_evil = dam;
     }
 
-    if (flgs.has(TR_FORCE_WEAPON)) {
+    if (flags.has(TR_FORCE_WEAPON)) {
         dam = forced = dam * 3 / 2 + (o_ptr->dd * o_ptr->ds + o_ptr->dd);
     } else {
         forced = dam;
     }
 
-    if (flgs.has(TR_VORPAL)) {
+    if (flags.has(TR_VORPAL)) {
         dam = vorpal = dam * 11 / 9;
     } else {
         vorpal = dam;
     }
 
     dam = dam + o_ptr->to_d;
-    msg_format_wizard(player_ptr, CHEAT_OBJECT, "素:%d> 対邪:%d> 理力:%d> 切:%d> 最終:%d", base, s_evil, forced, vorpal, dam);
+    constexpr auto fmt = _("素:%d> 対邪:%d> 理力:%d> 切:%d> 最終:%d", "Normal:%d> Evil:%d> Force:%d> Vorpal:%d> Total:%d");
+    msg_format_wizard(player_ptr, CHEAT_OBJECT, fmt, base, s_evil, forced, vorpal, dam);
     return dam;
 }
 
 bool has_extreme_damage_rate(PlayerType *player_ptr, ItemEntity *o_ptr)
 {
-    auto flgs = object_flags(o_ptr);
-    if (flgs.has(TR_VAMPIRIC)) {
-        if (flgs.has(TR_BLOWS) && (o_ptr->pval == 1) && (calc_arm_avgdamage(player_ptr, o_ptr) > 52)) {
+    const auto flags = o_ptr->get_flags();
+    if (flags.has(TR_VAMPIRIC)) {
+        if (flags.has(TR_BLOWS) && (o_ptr->pval == 1) && (calc_arm_avgdamage(player_ptr, o_ptr) > 52)) {
             return true;
         }
 
-        if (flgs.has(TR_BLOWS) && (o_ptr->pval == 2) && (calc_arm_avgdamage(player_ptr, o_ptr) > 43)) {
+        if (flags.has(TR_BLOWS) && (o_ptr->pval == 2) && (calc_arm_avgdamage(player_ptr, o_ptr) > 43)) {
             return true;
         }
 
-        if (flgs.has(TR_BLOWS) && (o_ptr->pval == 3) && (calc_arm_avgdamage(player_ptr, o_ptr) > 33)) {
+        if (flags.has(TR_BLOWS) && (o_ptr->pval == 3) && (calc_arm_avgdamage(player_ptr, o_ptr) > 33)) {
             return true;
         }
 
@@ -218,15 +216,15 @@ bool has_extreme_damage_rate(PlayerType *player_ptr, ItemEntity *o_ptr)
         return false;
     }
 
-    if (flgs.has(TR_BLOWS) && (o_ptr->pval == 1) && (calc_arm_avgdamage(player_ptr, o_ptr) > 65)) {
+    if (flags.has(TR_BLOWS) && (o_ptr->pval == 1) && (calc_arm_avgdamage(player_ptr, o_ptr) > 65)) {
         return true;
     }
 
-    if (flgs.has(TR_BLOWS) && (o_ptr->pval == 2) && (calc_arm_avgdamage(player_ptr, o_ptr) > 52)) {
+    if (flags.has(TR_BLOWS) && (o_ptr->pval == 2) && (calc_arm_avgdamage(player_ptr, o_ptr) > 52)) {
         return true;
     }
 
-    if (flgs.has(TR_BLOWS) && (o_ptr->pval == 3) && (calc_arm_avgdamage(player_ptr, o_ptr) > 40)) {
+    if (flags.has(TR_BLOWS) && (o_ptr->pval == 3) && (calc_arm_avgdamage(player_ptr, o_ptr) > 40)) {
         return true;
     }
 

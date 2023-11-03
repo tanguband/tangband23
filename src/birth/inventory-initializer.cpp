@@ -1,9 +1,10 @@
-﻿#include "birth/inventory-initializer.h"
+#include "birth/inventory-initializer.h"
 #include "autopick/autopick.h"
 #include "birth/initial-equipments-table.h"
 #include "floor/floor-object.h"
 #include "inventory/inventory-object.h"
 #include "inventory/inventory-slot-types.h"
+#include "monster-floor/place-monster-types.h"
 #include "monster-race/monster-race-hook.h"
 #include "monster/monster-list.h"
 #include "monster/monster-util.h"
@@ -40,10 +41,10 @@
 void wield_all(PlayerType *player_ptr)
 {
     ItemEntity ObjectType_body;
-    for (INVENTORY_IDX item = INVEN_PACK - 1; item >= 0; item--) {
+    for (INVENTORY_IDX i_idx = INVEN_PACK - 1; i_idx >= 0; i_idx--) {
         ItemEntity *o_ptr;
-        o_ptr = &player_ptr->inventory_list[item];
-        if (!o_ptr->bi_id) {
+        o_ptr = &player_ptr->inventory_list[i_idx];
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
@@ -54,7 +55,7 @@ void wield_all(PlayerType *player_ptr)
         if (slot == INVEN_LITE) {
             continue;
         }
-        if (player_ptr->inventory_list[slot].bi_id) {
+        if (player_ptr->inventory_list[slot].is_valid()) {
             continue;
         }
 
@@ -63,12 +64,12 @@ void wield_all(PlayerType *player_ptr)
         i_ptr->copy_from(o_ptr);
         i_ptr->number = 1;
 
-        if (item >= 0) {
-            inven_item_increase(player_ptr, item, -1);
-            inven_item_optimize(player_ptr, item);
+        if (i_idx >= 0) {
+            inven_item_increase(player_ptr, i_idx, -1);
+            inven_item_optimize(player_ptr, i_idx);
         } else {
-            floor_item_increase(player_ptr, 0 - item, -1);
-            floor_item_optimize(player_ptr, 0 - item);
+            floor_item_increase(player_ptr, 0 - i_idx, -1);
+            floor_item_optimize(player_ptr, 0 - i_idx);
         }
 
         o_ptr = &player_ptr->inventory_list[slot];
@@ -103,7 +104,7 @@ static void decide_initial_items(PlayerType *player_ptr, ItemEntity *q_ptr)
         get_mon_num_prep(player_ptr, monster_hook_human, nullptr);
         for (int i = rand_range(3, 4); i > 0; i--) {
             q_ptr->prep(lookup_baseitem_id({ ItemKindType::CORPSE, SV_CORPSE }));
-            q_ptr->pval = enum2i(get_mon_num(player_ptr, 0, 2, 0));
+            q_ptr->pval = enum2i(get_mon_num(player_ptr, 0, 2, PM_NONE));
             if (q_ptr->pval) {
                 q_ptr->number = 1;
                 add_outfit(player_ptr, q_ptr);

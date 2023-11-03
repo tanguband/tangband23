@@ -1,4 +1,4 @@
-﻿#include "player-info/alignment.h"
+#include "player-info/alignment.h"
 #include "artifact/fixed-art-types.h"
 #include "avatar/avatar.h"
 #include "game-option/text-display-options.h"
@@ -9,6 +9,7 @@
 #include "monster/monster-status.h"
 #include "player-info/equipment-info.h"
 #include "player-info/race-info.h"
+#include "system/angband-exceptions.h"
 #include "system/floor-type-definition.h"
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
@@ -26,7 +27,7 @@ PlayerAlignment::PlayerAlignment(PlayerType *player_ptr)
  * @param with_value 徳の情報と一緒に表示する時だけtrue
  * @return アライメントの表記を返す。
  */
-concptr PlayerAlignment::get_alignment_description(bool with_value)
+std::string PlayerAlignment::get_alignment_description(bool with_value)
 {
     auto s = alignment_label();
     if (with_value || show_actual_value) {
@@ -49,7 +50,7 @@ void PlayerAlignment::update_alignment()
         if (!m_ptr->is_valid()) {
             continue;
         }
-        auto *r_ptr = &monraces_info[m_ptr->r_idx];
+        auto *r_ptr = &m_ptr->get_monrace();
 
         if (!m_ptr->is_pet()) {
             continue;
@@ -87,7 +88,7 @@ void PlayerAlignment::update_alignment()
     case MimicKindType::VAMPIRE:
         break;
     default:
-        throw("Invalid MimicKindType was specified!");
+        THROW_EXCEPTION(std::logic_error, "Invalid MimicKindType was specified!");
     }
 
     for (int i = 0; i < 2; i++) {
@@ -103,16 +104,16 @@ void PlayerAlignment::update_alignment()
     int neutral[2];
     for (int i = 0; i < 8; i++) {
         switch (this->player_ptr->vir_types[i]) {
-        case V_JUSTICE:
+        case Virtue::JUSTICE:
             this->bias_good_alignment(this->player_ptr->virtues[i] * 2);
             break;
-        case V_CHANCE:
+        case Virtue::CHANCE:
             break;
-        case V_NATURE:
-        case V_HARMONY:
+        case Virtue::NATURE:
+        case Virtue::HARMONY:
             neutral[j++] = i;
             break;
-        case V_UNLIFE:
+        case Virtue::UNLIFE:
             this->bias_evil_alignment(this->player_ptr->virtues[i]);
             break;
         default:

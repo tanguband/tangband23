@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  *  @brief プレイヤーの移動処理 / Movement commands
  *  @date 2014/01/02
  *  @author
@@ -7,8 +7,6 @@
 
 #include "player/player-move.h"
 #include "core/disturbance.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/special-internal-keys.h"
 #include "core/stuff-handler.h"
 #include "core/window-redrawer.h"
@@ -45,6 +43,7 @@
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "target/target-checker.h"
 #include "timed-effect/player-blindness.h"
@@ -144,6 +143,7 @@ bool move_player_effect(PlayerType *player_ptr, POSITION ny, POSITION nx, BIT_FL
     auto *f_ptr = &terrains_info[g_ptr->feat];
     TerrainType *of_ptr = &terrains_info[oc_ptr->feat];
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     if (!(mpe_mode & MPE_STAYING)) {
         MONSTER_IDX om_idx = oc_ptr->m_idx;
         MONSTER_IDX nm_idx = g_ptr->m_idx;
@@ -172,17 +172,28 @@ bool move_player_effect(PlayerType *player_ptr, POSITION ny, POSITION nx, BIT_FL
         verify_panel(player_ptr);
         if (mpe_mode & MPE_FORGET_FLOW) {
             forget_flow(floor_ptr);
-            player_ptr->update |= PU_UN_VIEW;
-            player_ptr->redraw |= PR_MAP;
+            rfu.set_flag(StatusRecalculatingFlag::UN_VIEW);
+            rfu.set_flag(MainWindowRedrawingFlag::MAP);
         }
 
-        player_ptr->update |= PU_VIEW | PU_LITE | PU_FLOW | PU_MON_LITE | PU_DISTANCE;
-        player_ptr->window_flags |= PW_OVERHEAD | PW_DUNGEON;
+        static constexpr auto flags_srf = {
+            StatusRecalculatingFlag::VIEW,
+            StatusRecalculatingFlag::LITE,
+            StatusRecalculatingFlag::FLOW,
+            StatusRecalculatingFlag::MONSTER_LITE,
+            StatusRecalculatingFlag::DISTANCE,
+        };
+        rfu.set_flags(flags_srf);
+        static constexpr auto flags_swrf = {
+            SubWindowRedrawingFlag::OVERHEAD,
+            SubWindowRedrawingFlag::DUNGEON,
+        };
+        rfu.set_flags(flags_swrf);
         if ((!player_ptr->effects()->blindness()->is_blind() && !no_lite(player_ptr)) || !is_trap(player_ptr, g_ptr->feat)) {
             g_ptr->info &= ~(CAVE_UNSAFE);
         }
 
-        if (floor_ptr->dun_level && dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::FORGET)) {
+        if (floor_ptr->dun_level && floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::FORGET)) {
             wiz_dark(player_ptr);
         }
 
@@ -198,14 +209,15 @@ bool move_player_effect(PlayerType *player_ptr, POSITION ny, POSITION nx, BIT_FL
             }
         }
 
-        if ((player_ptr->action == ACTION_HAYAGAKE) && (f_ptr->flags.has_not(TerrainCharacteristics::PROJECT) || (!player_ptr->levitation && f_ptr->flags.has(TerrainCharacteristics::DEEP)))) {
+        using Tc = TerrainCharacteristics;
+        if ((player_ptr->action == ACTION_HAYAGAKE) && (f_ptr->flags.has_not(Tc::PROJECT) || (!player_ptr->levitation && f_ptr->flags.has(Tc::DEEP)))) {
             msg_print(_("ここでは素早く動けない。", "You cannot run in here."));
             set_action(player_ptr, ACTION_NONE);
         }
 
         if (PlayerRace(player_ptr).equals(PlayerRaceType::MERFOLK)) {
-            if (f_ptr->flags.has(TerrainCharacteristics::WATER) ^ of_ptr->flags.has(TerrainCharacteristics::WATER)) {
-                player_ptr->update |= PU_BONUS;
+            if (f_ptr->flags.has(Tc::WATER) ^ of_ptr->flags.has(Tc::WATER)) {
+                rfu.set_flag(StatusRecalculatingFlag::BONUS);
                 update_creature(player_ptr);
             }
         }
@@ -232,9 +244,13 @@ bool move_player_effect(PlayerType *player_ptr, POSITION ny, POSITION nx, BIT_FL
         carry(player_ptr, any_bits(mpe_mode, MPE_DO_PICKUP));
     }
 
+    // 自動拾い/自動破壊により床上のアイテムリストが変化した可能性があるので表示を更新
     if (!player_ptr->running) {
-        // 自動拾い/自動破壊により床上のアイテムリストが変化した可能性があるので表示を更新
-        set_bits(player_ptr->window_flags, PW_FLOOR_ITEM_LIST | PW_FOUND_ITEM_LIST);
+        static constexpr auto flags_swrf = {
+            SubWindowRedrawingFlag::FLOOR_ITEMS,
+            SubWindowRedrawingFlag::FOUND_ITEMS,
+        };
+        rfu.set_flags(flags_swrf);
         window_stuff(player_ptr);
     }
 
@@ -259,7 +275,7 @@ bool move_player_effect(PlayerType *player_ptr, POSITION ny, POSITION nx, BIT_FL
         leave_quest_check(player_ptr);
         floor_ptr->quest_number = i2enum<QuestId>(g_ptr->special);
         floor_ptr->dun_level = 0;
-        if (!inside_quest(floor_ptr->quest_number)) {
+        if (!floor_ptr->is_in_quest()) {
             player_ptr->word_recall = 0;
         }
         player_ptr->oldpx = 0;
@@ -302,12 +318,12 @@ bool move_player_effect(PlayerType *player_ptr, POSITION ny, POSITION nx, BIT_FL
  */
 bool trap_can_be_ignored(PlayerType *player_ptr, FEAT_IDX feat)
 {
-    auto *f_ptr = &terrains_info[feat];
-    if (f_ptr->flags.has_not(TerrainCharacteristics::TRAP)) {
+    const auto &terrain = TerrainList::get_instance()[feat];
+    if (terrain.flags.has_not(TerrainCharacteristics::TRAP)) {
         return true;
     }
 
-    switch (i2enum<TrapType>(f_ptr->subtype)) {
+    switch (i2enum<TrapType>(terrain.subtype)) {
     case TrapType::TRAPDOOR:
     case TrapType::PIT:
     case TrapType::SPIKED_PIT:

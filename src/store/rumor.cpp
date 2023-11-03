@@ -1,4 +1,4 @@
-﻿#include "store/rumor.h"
+#include "store/rumor.h"
 #include "flavor/flavor-describer.h"
 #include "flavor/object-flavor-types.h"
 #include "floor/floor-town.h"
@@ -7,6 +7,7 @@
 #include "monster-race/monster-race.h"
 #include "object-enchant/special-object-flags.h"
 #include "object/object-kind-hook.h"
+#include "system/angband-exceptions.h"
 #include "system/artifact-type-definition.h"
 #include "system/baseitem-info.h"
 #include "system/dungeon-info.h"
@@ -16,8 +17,10 @@
 #include "view/display-messages.h"
 #include "world/world.h"
 #include <algorithm>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 /*
@@ -36,15 +39,18 @@ static short get_rumor_num(std::string_view zz, short max_idx)
     return static_cast<short>(atoi(zz.data()));
 }
 
-static std::string_view bind_rumor_name(std::string &base, concptr fullname)
+static std::string bind_rumor_name(std::string_view base, std::string_view item_name)
 {
-    auto *s = strstr(base.data(), "{Name}");
-    if (s) {
-        s[0] = '\0';
-        return format("%s%s%s", base.data(), fullname, (s + 6));
+    if (const auto pos = base.find("{Name}");
+        pos != std::string::npos) {
+        const auto head = base.substr(0, pos);
+        const auto tail = base.substr(pos + 6);
+        std::stringstream ss;
+        ss << head << item_name << tail;
+        return ss.str();
     }
 
-    return base;
+    return std::string(base);
 }
 
 /*
@@ -76,28 +82,30 @@ static std::pair<FixedArtifactId, const ArtifactType *> get_artifact_definition(
     const auto max_idx = enum2i(artifacts_info.rbegin()->first);
     while (true) {
         const auto a_idx = i2enum<FixedArtifactId>(get_rumor_num(artifact_name.data(), max_idx));
-        const auto *a_ptr = ArtifactsInfo::get_instance().get_artifact(a_idx);
-        if (a_ptr == nullptr) {
-            continue;
-        }
-
-        if (!a_ptr->name.empty()) {
-            return { a_idx, a_ptr };
+        const auto &artifact = ArtifactsInfo::get_instance().get_artifact(a_idx);
+        if (!artifact.name.empty()) {
+            return { a_idx, &artifact };
         }
     }
 }
 
 void display_rumor(PlayerType *player_ptr, bool ex)
 {
-    char rumor[1024];
     int section = (ex && (randint0(3) == 0)) ? 1 : 0;
-    errr err = _(get_rnd_line_jonly("rumors_j.txt", section, rumor, 10), get_rnd_line("rumors.txt", section, rumor));
-    if (err) {
-        strcpy(rumor, _("嘘の噂もある。", "Some rumors are wrong."));
+#ifdef JP
+    auto opt_rumor = get_random_line_ja_only("rumors_j.txt", section, 10);
+#else
+    auto opt_rumor = get_random_line("rumors.txt", section);
+#endif
+    std::string rumor;
+    if (opt_rumor.has_value()) {
+        rumor = std::move(opt_rumor.value());
+    } else {
+        rumor = _("嘘の噂もある。", "Some rumors are wrong.");
     }
 
-    if (strncmp(rumor, "R:", 2) != 0) {
-        msg_format("%s", rumor);
+    if (!rumor.starts_with("R:")) {
+        msg_print(rumor);
         return;
     }
 
@@ -107,7 +115,7 @@ void display_rumor(PlayerType *player_ptr, bool ex)
     }
 
     concptr rumor_eff_format = nullptr;
-    char fullname[1024] = "";
+    std::string fullname;
     const auto &category = tokens[0];
     if (category == "ARTIFACT") {
         const auto &artifact_name = tokens[1];
@@ -117,23 +125,15 @@ void display_rumor(PlayerType *player_ptr, bool ex)
         item.prep(bi_id);
         item.fixed_artifact_idx = a_idx;
         item.ident = IDENT_STORE;
-        describe_flavor(player_ptr, fullname, &item, OD_NAME_ONLY);
+        fullname = describe_flavor(player_ptr, &item, OD_NAME_ONLY);
     } else if (category == "MONSTER") {
-        MonsterRaceInfo *r_ptr;
         const auto &monster_name = tokens[1];
 
         // @details プレイヤーもダミーで入っているので、1つ引いておかないと数が合わなくなる.
         const auto monraces_size = static_cast<short>(monraces_info.size() - 1);
-        while (true) {
-            auto r_idx = i2enum<MonsterRaceId>(get_rumor_num(monster_name, monraces_size));
-            r_ptr = &monraces_info[r_idx];
-            if (!r_ptr->name.empty()) {
-                break;
-            }
-        }
-
-        strcpy(fullname, r_ptr->name.data());
-
+        auto monrace_id = i2enum<MonsterRaceId>(get_rumor_num(monster_name, monraces_size));
+        auto *r_ptr = &monraces_info[monrace_id];
+        fullname = r_ptr->name;
         if (!r_ptr->r_sights) {
             r_ptr->r_sights++;
         }
@@ -150,7 +150,7 @@ void display_rumor(PlayerType *player_ptr, bool ex)
             }
         }
 
-        strcpy(fullname, d_ptr->name.data());
+        fullname = d_ptr->name;
         if (!max_dlv[d_idx]) {
             max_dlv[d_idx] = d_ptr->mindepth;
             rumor_eff_format = _("%sに帰還できるようになった。", "You can recall to %s.");
@@ -160,27 +160,25 @@ void display_rumor(PlayerType *player_ptr, bool ex)
         const auto &town_name = tokens[1];
         while (true) {
             t_idx = get_rumor_num(town_name, VALID_TOWNS);
-            if (town_info[t_idx].name[0] != '\0') {
+            if (!towns_info[t_idx].name.empty()) {
                 break;
             }
         }
 
-        strcpy(fullname, town_info[t_idx].name);
-
+        fullname = towns_info[t_idx].name;
         int32_t visit = (1UL << (t_idx - 1));
         if ((t_idx != SECRET_TOWN) && !(player_ptr->visit & visit)) {
             player_ptr->visit |= visit;
             rumor_eff_format = _("%sに行ったことがある気がする。", "You feel you have been to %s.");
         }
     } else {
-        throw std::runtime_error("Unknown token exists in rumor.txt");
+        THROW_EXCEPTION(std::runtime_error, "Unknown token exists in rumor.txt");
     }
 
-    auto base = std::string(tokens[2]);
-    const auto rumor_msg = bind_rumor_name(base, fullname);
+    const auto rumor_msg = bind_rumor_name(tokens[2], fullname);
     msg_print(rumor_msg);
     if (rumor_eff_format) {
         msg_print(nullptr);
-        msg_format(rumor_eff_format, fullname);
+        msg_format(rumor_eff_format, fullname.data());
     }
 }

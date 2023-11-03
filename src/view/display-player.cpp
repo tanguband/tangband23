@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief プレイヤーのステータス表示メインルーチン群
  * @date 2020/02/25
  * @author Hourier
@@ -13,6 +13,7 @@
 #include "info-reader/fixed-map-parser.h"
 #include "inventory/inventory-slot-types.h"
 #include "knowledge/knowledge-mutations.h"
+#include "locale/japanese.h"
 #include "mind/mind-elementalist.h"
 #include "mutation/mutation-flag-types.h"
 #include "object/object-info.h"
@@ -31,9 +32,9 @@
 #include "system/floor-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "term/gameterm.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
-#include "util/buffer-shaper.h"
 #include "view/display-characteristic.h"
 #include "view/display-player-middle.h"
 #include "view/display-player-misc-info.h"
@@ -69,6 +70,7 @@ static bool display_player_info(PlayerType *player_ptr, int mode)
     }
 
     if (mode == 5) {
+        TermCenteredOffsetSetter tcos(MAIN_TERM_MIN_COLS, std::nullopt);
         do_cmd_knowledge_mutations(player_ptr);
         return true;
     }
@@ -82,14 +84,7 @@ static bool display_player_info(PlayerType *player_ptr, int mode)
  */
 static void display_player_basic_info(PlayerType *player_ptr)
 {
-    char tmp[64];
-#ifdef JP
-    sprintf(tmp, "%s%s%s", ap_ptr->title, ap_ptr->no == 1 ? "の" : "", player_ptr->name);
-#else
-    sprintf(tmp, "%s %s", ap_ptr->title, player_ptr->name);
-#endif
-
-    display_player_one_line(ENTRY_NAME, tmp, TERM_L_BLUE);
+    display_player_name(player_ptr);
     display_player_one_line(ENTRY_SEX, sp_ptr->title, TERM_L_BLUE);
     display_player_one_line(ENTRY_RACE, (player_ptr->mimic_form != MimicKindType::NONE ? mimic_info.at(player_ptr->mimic_form).title : rp_ptr->title), TERM_L_BLUE);
     display_player_one_line(ENTRY_CLASS, cp_ptr->title, TERM_L_BLUE);
@@ -105,13 +100,14 @@ static void display_magic_realms(PlayerType *player_ptr)
         return;
     }
 
-    char tmp[64];
+    std::string tmp;
     if (PlayerClass(player_ptr).equals(PlayerClassType::ELEMENTALIST)) {
-        sprintf(tmp, "%s", get_element_title(player_ptr->element));
+        tmp = get_element_title(player_ptr->element);
     } else if (player_ptr->realm2) {
-        sprintf(tmp, "%s, %s", realm_names[player_ptr->realm1], realm_names[player_ptr->realm2]);
+        tmp = realm_names[player_ptr->realm1];
+        tmp.append(", ").append(realm_names[player_ptr->realm2]);
     } else {
-        strcpy(tmp, realm_names[player_ptr->realm1]);
+        tmp = realm_names[player_ptr->realm1];
     }
 
     display_player_one_line(ENTRY_REALM, tmp, TERM_L_BLUE);
@@ -127,8 +123,8 @@ static void display_phisique(PlayerType *player_ptr)
 {
 #ifdef JP
     display_player_one_line(ENTRY_AGE, format("%d才", (int)player_ptr->age), TERM_L_BLUE);
-    display_player_one_line(ENTRY_HEIGHT, format("%dcm", (int)((player_ptr->ht * 254) / 100)), TERM_L_BLUE);
-    display_player_one_line(ENTRY_WEIGHT, format("%dkg", (int)((player_ptr->wt * 4536) / 10000)), TERM_L_BLUE);
+    display_player_one_line(ENTRY_HEIGHT, format("%dcm", inch_to_cm(player_ptr->ht)), TERM_L_BLUE);
+    display_player_one_line(ENTRY_WEIGHT, format("%dkg", lb_to_kg(player_ptr->wt)), TERM_L_BLUE);
     display_player_one_line(ENTRY_SOCIAL, format("%d  ", (int)player_ptr->sc), TERM_L_BLUE);
 #else
     display_player_one_line(ENTRY_AGE, format("%d", (int)player_ptr->age), TERM_L_BLUE);
@@ -146,20 +142,16 @@ static void display_phisique(PlayerType *player_ptr)
  */
 static void display_player_stats(PlayerType *player_ptr)
 {
-    char buf[80];
     for (int i = 0; i < A_MAX; i++) {
         if (player_ptr->stat_cur[i] < player_ptr->stat_max[i]) {
             put_str(stat_names_reduced[i], 3 + i, 53);
             int value = player_ptr->stat_use[i];
-            cnv_stat(value, buf);
-            c_put_str(TERM_YELLOW, buf, 3 + i, 60);
+            c_put_str(TERM_YELLOW, cnv_stat(value), 3 + i, 60);
             value = player_ptr->stat_top[i];
-            cnv_stat(value, buf);
-            c_put_str(TERM_L_GREEN, buf, 3 + i, 67);
+            c_put_str(TERM_L_GREEN, cnv_stat(value), 3 + i, 67);
         } else {
             put_str(stat_names[i], 3 + i, 53);
-            cnv_stat(player_ptr->stat_use[i], buf);
-            c_put_str(TERM_L_GREEN, buf, 3 + i, 60);
+            c_put_str(TERM_L_GREEN, cnv_stat(player_ptr->stat_use[i]), 3 + i, 60);
         }
 
         if (player_ptr->stat_max[i] == player_ptr->stat_max_max[i]) {
@@ -182,19 +174,20 @@ static std::optional<std::string> search_death_cause(PlayerType *player_ptr)
     }
 
     if (w_ptr->total_winner) {
-        return std::string(format(_("…あなたは勝利の後%sした。", "...You %s after winning."),
-            streq(player_ptr->died_from, "Seppuku") ? _("切腹", "committed seppuku") : _("引退", "retired from the adventure")));
+        return format(_("…あなたは勝利の後%sした。", "...You %s after winning."),
+            streq(player_ptr->died_from, "Seppuku") ? _("切腹", "committed seppuku") : _("引退", "retired from the adventure"));
     }
 
     if (!floor_ptr->dun_level) {
+        constexpr auto killed_monster = _("…あなたは%sで%sに殺された。", "...You were killed by %s in %s.");
 #ifdef JP
-        return std::string(format("…あなたは%sで%sに殺された。", map_name(player_ptr), player_ptr->died_from.data()));
+        return format(killed_monster, map_name(player_ptr).data(), player_ptr->died_from.data());
 #else
-        return std::string(format("...You were killed by %s in %s.", player_ptr->died_from.data(), map_name(player_ptr)));
+        return format(killed_monster, player_ptr->died_from.data(), map_name(player_ptr).data());
 #endif
     }
 
-    if (inside_quest(floor_ptr->quest_number) && quest_type::is_fixed(floor_ptr->quest_number)) {
+    if (floor_ptr->is_in_quest() && QuestType::is_fixed(floor_ptr->quest_number)) {
         const auto &quest_list = QuestList::get_instance();
 
         /* Get the quest text */
@@ -203,17 +196,19 @@ static std::optional<std::string> search_death_cause(PlayerType *player_ptr)
         parse_fixed_map(player_ptr, QUEST_DEFINITION_LIST, 0, 0, 0, 0);
 
         const auto *q_ptr = &quest_list[floor_ptr->quest_number];
+        constexpr auto killed_quest = _("…あなたは、クエスト「%s」で%sに殺された。", "...You were killed by %s in the quest '%s'.");
 #ifdef JP
-        return std::string(format("…あなたは、クエスト「%s」で%sに殺された。", q_ptr->name, player_ptr->died_from.data()));
+        return format(killed_quest, q_ptr->name.data(), player_ptr->died_from.data());
 #else
-        return std::string(format("...You were killed by %s in the quest '%s'.", player_ptr->died_from.data(), q_ptr->name));
+        return format(killed_quest, player_ptr->died_from.data(), q_ptr->name.data());
 #endif
     }
 
+    constexpr auto killed_floor = _("…あなたは、%sの%d階で%sに殺された。", "...You were killed by %s on level %d of %s.");
 #ifdef JP
-    return std::string(format("…あなたは、%sの%d階で%sに殺された。", map_name(player_ptr), (int)floor_ptr->dun_level, player_ptr->died_from.data()));
+    return format(killed_floor, map_name(player_ptr).data(), (int)floor_ptr->dun_level, player_ptr->died_from.data());
 #else
-    return std::string(format("...You were killed by %s on level %d of %s.", player_ptr->died_from.data(), floor_ptr->dun_level, map_name(player_ptr)));
+    return format(killed_floor, player_ptr->died_from.data(), floor_ptr->dun_level, map_name(player_ptr).data());
 #endif
 }
 
@@ -226,7 +221,7 @@ static std::optional<std::string> search_death_cause(PlayerType *player_ptr)
 static std::optional<std::string> decide_death_in_quest(PlayerType *player_ptr)
 {
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if (!inside_quest(floor_ptr->quest_number) || !quest_type::is_fixed(floor_ptr->quest_number)) {
+    if (!floor_ptr->is_in_quest() || !QuestType::is_fixed(floor_ptr->quest_number)) {
         return std::nullopt;
     }
 
@@ -238,7 +233,7 @@ static std::optional<std::string> decide_death_in_quest(PlayerType *player_ptr)
     quest_text_line = 0;
     init_flags = INIT_NAME_ONLY;
     parse_fixed_map(player_ptr, QUEST_DEFINITION_LIST, 0, 0, 0, 0);
-    return std::string(format(_("…あなたは現在、 クエスト「%s」を遂行中だ。", "...Now, you are in the quest '%s'."), quest_list[floor_ptr->quest_number].name));
+    return std::string(format(_("…あなたは現在、 クエスト「%s」を遂行中だ。", "...Now, you are in the quest '%s'."), quest_list[floor_ptr->quest_number].name.data()));
 }
 
 /*!
@@ -255,43 +250,19 @@ static std::string decide_current_floor(PlayerType *player_ptr)
 
     auto *floor_ptr = player_ptr->current_floor_ptr;
     if (floor_ptr->dun_level == 0) {
-        return std::string(format(_("…あなたは現在、 %s にいる。", "...Now, you are in %s."), map_name(player_ptr)));
+        return format(_("…あなたは現在、 %s にいる。", "...Now, you are in %s."), map_name(player_ptr).data());
     }
 
     if (auto decision = decide_death_in_quest(player_ptr); decision.has_value()) {
         return decision.value();
     }
 
+    constexpr auto mes = _("…あなたは現在、 %s の %d 階で探索している。", "...Now, you are exploring level %d of %s.");
 #ifdef JP
-    return std::string(format("…あなたは現在、 %s の %d 階で探索している。", map_name(player_ptr), (int)floor_ptr->dun_level));
+    return format(mes, map_name(player_ptr).data(), (int)floor_ptr->dun_level);
 #else
-    return std::string(format("...Now, you are exploring level %d of %s.", (int)floor_ptr->dun_level, map_name(player_ptr)));
+    return format(mes, (int)floor_ptr->dun_level, map_name(player_ptr).data());
 #endif
-}
-
-/*!
- * @brief 今いる、または死亡した場所を表示する
- * @param statmsg メッセージバッファ
- * @return ダンプ表示行数の補正項
- * @details v2.2までは状況に関係なく必ず2行であり、v3.0では1～4行になり得、num_linesはその行数.
- * ギリギリ見切れる場合があるので行数は僅かに多めに取る.
- */
-static int display_current_floor(const std::string &statmsg)
-{
-    char temp[1000];
-    constexpr auto chars_per_line = 60;
-    shape_buffer(statmsg.data(), chars_per_line, temp, sizeof(temp));
-    auto t = temp;
-    auto statmsg_size = statmsg.size();
-    auto fraction = statmsg_size % (chars_per_line - 1);
-    auto num_lines = statmsg_size / (chars_per_line - 1);
-    num_lines += fraction > 0 ? 1 : 0;
-    for (auto i = 0U; i < num_lines; i++) {
-        put_str(t, i + 5 + 12, 10);
-        t += strlen(t) + 1;
-    }
-
-    return num_lines;
 }
 
 /*!
@@ -313,7 +284,10 @@ std::optional<int> display_player(PlayerType *player_ptr, const int tmp_mode)
 {
     auto has_any_mutation = (player_ptr->muta.any() || has_good_luck(player_ptr)) && display_mutations;
     auto mode = has_any_mutation ? tmp_mode % 6 : tmp_mode % 5;
-    clear_from(0);
+    {
+        TermOffsetSetter tos(0, 0);
+        clear_from(0);
+    }
     if (display_player_info(player_ptr, mode)) {
         return std::nullopt;
     }
@@ -321,7 +295,7 @@ std::optional<int> display_player(PlayerType *player_ptr, const int tmp_mode)
     display_player_basic_info(player_ptr);
     display_magic_realms(player_ptr);
     if (PlayerClass(player_ptr).equals(PlayerClassType::CHAOS_WARRIOR) || (player_ptr->muta.has(PlayerMutationType::CHAOS_GIFT))) {
-        display_player_one_line(ENTRY_PATRON, patron_list[player_ptr->chaos_patron].name.data(), TERM_L_BLUE);
+        display_player_one_line(ENTRY_PATRON, patron_list[player_ptr->chaos_patron].name, TERM_L_BLUE);
     }
 
     display_phisique(player_ptr);
@@ -338,11 +312,12 @@ std::optional<int> display_player(PlayerType *player_ptr, const int tmp_mode)
     }
 
     auto statmsg = decide_current_floor(player_ptr);
-    if (statmsg == "") {
+    if (statmsg.empty()) {
         return std::nullopt;
     }
 
-    return display_current_floor(statmsg);
+    constexpr auto chars_per_line = 60;
+    return display_wrap_around(statmsg, chars_per_line, 17, 10);
 }
 
 /*!
@@ -358,10 +333,10 @@ void display_player_equippy(PlayerType *player_ptr, TERM_LEN y, TERM_LEN x, BIT_
 {
     const auto max_i = (mode & DP_WP) ? INVEN_BOW + 1 : INVEN_TOTAL;
     for (int i = INVEN_MAIN_HAND; i < max_i; i++) {
-        const auto &o_ref = player_ptr->inventory_list[i];
-        auto a = o_ref.get_color();
-        auto c = o_ref.get_symbol();
-        if (!equippy_chars || (o_ref.bi_id == 0)) {
+        const auto &item = player_ptr->inventory_list[i];
+        auto a = item.get_color();
+        auto c = item.get_symbol();
+        if (!equippy_chars || !item.is_valid()) {
             c = ' ';
             a = TERM_DARK;
         }

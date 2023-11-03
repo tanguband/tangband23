@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief オブジェクト選択処理
  * @date 2020/07/02
  * @author Hourier
@@ -27,9 +27,12 @@
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/gameterm.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "util/int-char-converter.h"
+#include "util/string-processor.h"
 #include "view/display-inventory.h"
 #include "view/display-messages.h"
 #include "window/display-sub-windows.h"
@@ -256,7 +259,8 @@ bool get_item_floor(PlayerType *player_ptr, COMMAND_CODE *cp, concptr pmt, concp
 
     fis_ptr->floor_num = 0;
     if (fis_ptr->floor) {
-        fis_ptr->floor_num = scan_floor_items(player_ptr, fis_ptr->floor_list, player_ptr->y, player_ptr->x, SCAN_FLOOR_ITEM_TESTER | SCAN_FLOOR_ONLY_MARKED, item_tester);
+        constexpr auto options = SCAN_FLOOR_ITEM_TESTER | SCAN_FLOOR_ONLY_MARKED;
+        fis_ptr->floor_num = scan_floor_items(player_ptr, fis_ptr->floor_list, player_ptr->y, player_ptr->x, options, item_tester);
     }
 
     if ((mode & USE_INVEN) && (fis_ptr->i1 <= fis_ptr->i2)) {
@@ -301,6 +305,11 @@ bool get_item_floor(PlayerType *player_ptr, COMMAND_CODE *cp, concptr pmt, concp
         screen_save();
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags = {
+        SubWindowRedrawingFlag::INVENTORY,
+        SubWindowRedrawingFlag::EQUIPMENT,
+    };
     while (!fis_ptr->done) {
         int ni = 0;
         int ne = 0;
@@ -309,21 +318,21 @@ bool get_item_floor(PlayerType *player_ptr, COMMAND_CODE *cp, concptr pmt, concp
                 continue;
             }
 
-            if (window_flag[i] & PW_INVEN) {
+            if (g_window_flags[i].has(SubWindowRedrawingFlag::INVENTORY)) {
                 ni++;
             }
 
-            if (window_flag[i] & PW_EQUIP) {
+            if (g_window_flags[i].has(SubWindowRedrawingFlag::EQUIPMENT)) {
                 ne++;
             }
         }
 
         if ((command_wrk == (USE_EQUIP) && ni && !ne) || (command_wrk == (USE_INVEN) && !ni && ne)) {
-            toggle_inventory_equipment(player_ptr);
+            toggle_inventory_equipment();
             fis_ptr->toggle = !fis_ptr->toggle;
         }
 
-        player_ptr->window_flags |= (PW_INVEN | PW_EQUIP);
+        rfu.set_flags(flags);
         handle_stuff(player_ptr);
         COMMAND_CODE get_item_label = 0;
         if (command_wrk == USE_INVEN) {
@@ -349,104 +358,104 @@ bool get_item_floor(PlayerType *player_ptr, COMMAND_CODE *cp, concptr pmt, concp
         }
 
         if (command_wrk == USE_INVEN) {
-            sprintf(fis_ptr->out_val, _("持ち物:", "Inven:"));
+            angband_strcpy(fis_ptr->out_val, _("持ち物:", "Inven:"), sizeof(fis_ptr->out_val));
             if (!use_menu) {
                 char tmp_val[80];
-                sprintf(tmp_val, _("%c-%c,'(',')',", " %c-%c,'(',')',"), index_to_label(fis_ptr->i1), index_to_label(fis_ptr->i2));
-                strcat(fis_ptr->out_val, tmp_val);
+                strnfmt(tmp_val, sizeof(tmp_val), _("%c-%c,'(',')',", " %c-%c,'(',')',"), index_to_label(fis_ptr->i1), index_to_label(fis_ptr->i2));
+                angband_strcat(fis_ptr->out_val, tmp_val, sizeof(fis_ptr->out_val));
             }
 
             if (!command_see && !use_menu) {
-                strcat(fis_ptr->out_val, _(" '*'一覧,", " * to see,"));
+                angband_strcat(fis_ptr->out_val, _(" '*'一覧,", " * to see,"), sizeof(fis_ptr->out_val));
             }
 
             if (fis_ptr->allow_equip) {
                 if (!use_menu) {
-                    strcat(fis_ptr->out_val, _(" '/' 装備品,", " / for Equip,"));
+                    angband_strcat(fis_ptr->out_val, _(" '/' 装備品,", " / for Equip,"), sizeof(fis_ptr->out_val));
                 } else if (fis_ptr->allow_floor) {
-                    strcat(fis_ptr->out_val, _(" '6' 装備品,", " 6 for Equip,"));
+                    angband_strcat(fis_ptr->out_val, _(" '6' 装備品,", " 6 for Equip,"), sizeof(fis_ptr->out_val));
                 } else {
-                    strcat(fis_ptr->out_val, _(" '4'or'6' 装備品,", " 4 or 6 for Equip,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4'or'6' 装備品,", " 4 or 6 for Equip,"), sizeof(fis_ptr->out_val));
                 }
             }
 
             if (fis_ptr->allow_floor) {
                 if (!use_menu) {
-                    strcat(fis_ptr->out_val, _(" '-'床上,", " - for floor,"));
+                    angband_strcat(fis_ptr->out_val, _(" '-'床上,", " - for floor,"), sizeof(fis_ptr->out_val));
                 } else if (fis_ptr->allow_equip) {
-                    strcat(fis_ptr->out_val, _(" '4' 床上,", " 4 for floor,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4' 床上,", " 4 for floor,"), sizeof(fis_ptr->out_val));
                 } else {
-                    strcat(fis_ptr->out_val, _(" '4'or'6' 床上,", " 4 or 6 for floor,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4'or'6' 床上,", " 4 or 6 for floor,"), sizeof(fis_ptr->out_val));
                 }
             }
         } else if (command_wrk == (USE_EQUIP)) {
-            sprintf(fis_ptr->out_val, _("装備品:", "Equip:"));
+            angband_strcpy(fis_ptr->out_val, _("装備品:", "Equip:"), sizeof(fis_ptr->out_val));
             if (!use_menu) {
                 char tmp_val[80];
-                sprintf(tmp_val, _("%c-%c,'(',')',", " %c-%c,'(',')',"), index_to_label(fis_ptr->e1), index_to_label(fis_ptr->e2));
-                strcat(fis_ptr->out_val, tmp_val);
+                strnfmt(tmp_val, sizeof(tmp_val), _("%c-%c,'(',')',", " %c-%c,'(',')',"), index_to_label(fis_ptr->e1), index_to_label(fis_ptr->e2));
+                angband_strcat(fis_ptr->out_val, tmp_val, sizeof(fis_ptr->out_val));
             }
 
             if (!command_see && !use_menu) {
-                strcat(fis_ptr->out_val, _(" '*'一覧,", " * to see,"));
+                angband_strcat(fis_ptr->out_val, _(" '*'一覧,", " * to see,"), sizeof(fis_ptr->out_val));
             }
 
             if (fis_ptr->allow_inven) {
                 if (!use_menu) {
-                    strcat(fis_ptr->out_val, _(" '/' 持ち物,", " / for Inven,"));
+                    angband_strcat(fis_ptr->out_val, _(" '/' 持ち物,", " / for Inven,"), sizeof(fis_ptr->out_val));
                 } else if (fis_ptr->allow_floor) {
-                    strcat(fis_ptr->out_val, _(" '4' 持ち物,", " 4 for Inven,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4' 持ち物,", " 4 for Inven,"), sizeof(fis_ptr->out_val));
                 } else {
-                    strcat(fis_ptr->out_val, _(" '4'or'6' 持ち物,", " 4 or 6 for Inven,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4'or'6' 持ち物,", " 4 or 6 for Inven,"), sizeof(fis_ptr->out_val));
                 }
             }
 
             if (fis_ptr->allow_floor) {
                 if (!use_menu) {
-                    strcat(fis_ptr->out_val, _(" '-'床上,", " - for floor,"));
+                    angband_strcat(fis_ptr->out_val, _(" '-'床上,", " - for floor,"), sizeof(fis_ptr->out_val));
                 } else if (fis_ptr->allow_inven) {
-                    strcat(fis_ptr->out_val, _(" '6' 床上,", " 6 for floor,"));
+                    angband_strcat(fis_ptr->out_val, _(" '6' 床上,", " 6 for floor,"), sizeof(fis_ptr->out_val));
                 } else {
-                    strcat(fis_ptr->out_val, _(" '4'or'6' 床上,", " 4 or 6 for floor,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4'or'6' 床上,", " 4 or 6 for floor,"), sizeof(fis_ptr->out_val));
                 }
             }
         } else if (command_wrk == USE_FLOOR) {
-            sprintf(fis_ptr->out_val, _("床上:", "Floor:"));
+            angband_strcpy(fis_ptr->out_val, _("床上:", "Floor:"), sizeof(fis_ptr->out_val));
             if (!use_menu) {
                 char tmp_val[80];
-                sprintf(tmp_val, _("%c-%c,'(',')',", " %c-%c,'(',')',"), fis_ptr->n1, fis_ptr->n2);
-                strcat(fis_ptr->out_val, tmp_val);
+                strnfmt(tmp_val, sizeof(tmp_val), _("%c-%c,'(',')',", " %c-%c,'(',')',"), fis_ptr->n1, fis_ptr->n2);
+                angband_strcat(fis_ptr->out_val, tmp_val, sizeof(fis_ptr->out_val));
             }
 
             if (!command_see && !use_menu) {
-                strcat(fis_ptr->out_val, _(" '*'一覧,", " * to see,"));
+                angband_strcat(fis_ptr->out_val, _(" '*'一覧,", " * to see,"), sizeof(fis_ptr->out_val));
             }
 
             if (use_menu) {
                 if (fis_ptr->allow_inven && fis_ptr->allow_equip) {
-                    strcat(fis_ptr->out_val, _(" '4' 装備品, '6' 持ち物,", " 4 for Equip, 6 for Inven,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4' 装備品, '6' 持ち物,", " 4 for Equip, 6 for Inven,"), sizeof(fis_ptr->out_val));
                 } else if (fis_ptr->allow_inven) {
-                    strcat(fis_ptr->out_val, _(" '4'or'6' 持ち物,", " 4 or 6 for Inven,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4'or'6' 持ち物,", " 4 or 6 for Inven,"), sizeof(fis_ptr->out_val));
                 } else if (fis_ptr->allow_equip) {
-                    strcat(fis_ptr->out_val, _(" '4'or'6' 装備品,", " 4 or 6 for Equip,"));
+                    angband_strcat(fis_ptr->out_val, _(" '4'or'6' 装備品,", " 4 or 6 for Equip,"), sizeof(fis_ptr->out_val));
                 }
             } else if (fis_ptr->allow_inven) {
-                strcat(fis_ptr->out_val, _(" '/' 持ち物,", " / for Inven,"));
+                angband_strcat(fis_ptr->out_val, _(" '/' 持ち物,", " / for Inven,"), sizeof(fis_ptr->out_val));
             } else if (fis_ptr->allow_equip) {
-                strcat(fis_ptr->out_val, _(" '/'装備品,", " / for Equip,"));
+                angband_strcat(fis_ptr->out_val, _(" '/'装備品,", " / for Equip,"), sizeof(fis_ptr->out_val));
             }
 
             if (command_see && !use_menu) {
-                strcat(fis_ptr->out_val, _(" Enter 次,", " Enter for scroll down,"));
+                angband_strcat(fis_ptr->out_val, _(" Enter 次,", " Enter for scroll down,"), sizeof(fis_ptr->out_val));
             }
         }
 
         if (fis_ptr->force) {
-            strcat(fis_ptr->out_val, _(" 'w'練気術,", " w for the Force,"));
+            angband_strcat(fis_ptr->out_val, _(" 'w'練気術,", " w for the Force,"), sizeof(fis_ptr->out_val));
         }
 
-        strcat(fis_ptr->out_val, " ESC");
-        sprintf(fis_ptr->tmp_val, "(%s) %s", fis_ptr->out_val, pmt);
+        angband_strcat(fis_ptr->out_val, " ESC", sizeof(fis_ptr->out_val));
+        strnfmt(fis_ptr->tmp_val, sizeof(fis_ptr->tmp_val), "(%s) %s", fis_ptr->out_val, pmt);
         prt(fis_ptr->tmp_val, 0, 0);
         fis_ptr->which = inkey();
         if (use_menu) {
@@ -662,10 +671,10 @@ bool get_item_floor(PlayerType *player_ptr, COMMAND_CODE *cp, concptr pmt, concp
                 g_ptr->o_idx_list.rotate(player_ptr->current_floor_ptr);
             }
 
-            player_ptr->window_flags |= PW_FLOOR_ITEM_LIST;
+            rfu.set_flag(SubWindowRedrawingFlag::FLOOR_ITEMS);
             window_stuff(player_ptr);
-
-            fis_ptr->floor_num = scan_floor_items(player_ptr, fis_ptr->floor_list, player_ptr->y, player_ptr->x, SCAN_FLOOR_ITEM_TESTER | SCAN_FLOOR_ONLY_MARKED, item_tester);
+            constexpr auto options = SCAN_FLOOR_ITEM_TESTER | SCAN_FLOOR_ONLY_MARKED;
+            fis_ptr->floor_num = scan_floor_items(player_ptr, fis_ptr->floor_list, player_ptr->y, player_ptr->x, options, item_tester);
             if (command_see) {
                 screen_load();
                 screen_save();
@@ -875,10 +884,10 @@ bool get_item_floor(PlayerType *player_ptr, COMMAND_CODE *cp, concptr pmt, concp
     }
 
     if (fis_ptr->toggle) {
-        toggle_inventory_equipment(player_ptr);
+        toggle_inventory_equipment();
     }
 
-    player_ptr->window_flags |= (PW_INVEN | PW_EQUIP);
+    rfu.set_flags(flags);
     handle_stuff(player_ptr);
     prt("", 0, 0);
     if (fis_ptr->oops && str) {

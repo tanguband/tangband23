@@ -1,5 +1,4 @@
-﻿#include "core/object-compressor.h"
-#include "core/player-redraw-types.h"
+#include "core/object-compressor.h"
 #include "core/window-redrawer.h"
 #include "floor/floor-object.h"
 #include "floor/geometry.h"
@@ -9,6 +8,7 @@
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "view/display-messages.h"
 #include <algorithm>
 
@@ -56,8 +56,13 @@ void compact_objects(PlayerType *player_ptr, int size)
     ItemEntity *o_ptr;
     if (size) {
         msg_print(_("アイテム情報を圧縮しています...", "Compacting objects..."));
-        player_ptr->redraw |= PR_MAP;
-        player_ptr->window_flags |= PW_OVERHEAD | PW_DUNGEON;
+        auto &rfu = RedrawingFlagsUpdater::get_instance();
+        rfu.set_flag(MainWindowRedrawingFlag::MAP);
+        static constexpr auto flags_swrf = {
+            SubWindowRedrawingFlag::OVERHEAD,
+            SubWindowRedrawingFlag::DUNGEON,
+        };
+        rfu.set_flags(flags_swrf);
     }
 
     auto *floor_ptr = player_ptr->current_floor_ptr;
@@ -67,7 +72,7 @@ void compact_objects(PlayerType *player_ptr, int size)
         for (OBJECT_IDX i = 1; i < floor_ptr->o_max; i++) {
             o_ptr = &floor_ptr->o_list[i];
 
-            if (!o_ptr->is_valid() || (baseitems_info[o_ptr->bi_id].level > cur_lev)) {
+            if (!o_ptr->is_valid() || (o_ptr->get_baseitem().level > cur_lev)) {
                 continue;
             }
 
@@ -91,7 +96,7 @@ void compact_objects(PlayerType *player_ptr, int size)
             }
 
             int chance = 90;
-            if ((o_ptr->is_fixed_artifact() || o_ptr->art_name) && (cnt < 1000)) {
+            if (o_ptr->is_fixed_or_random_artifact() && (cnt < 1000)) {
                 chance = 100;
             }
 
@@ -106,7 +111,7 @@ void compact_objects(PlayerType *player_ptr, int size)
 
     for (OBJECT_IDX i = floor_ptr->o_max - 1; i >= 1; i--) {
         o_ptr = &floor_ptr->o_list[i];
-        if (o_ptr->bi_id) {
+        if (o_ptr->is_valid()) {
             continue;
         }
 

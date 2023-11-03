@@ -1,5 +1,6 @@
-﻿#include "floor/floor-leaver.h"
+#include "floor/floor-leaver.h"
 #include "cmd-building/cmd-building.h"
+#include "dungeon/quest.h"
 #include "floor/cave.h"
 #include "floor/floor-events.h"
 #include "floor/floor-mode-changer.h"
@@ -21,6 +22,7 @@
 #include "pet/pet-util.h"
 #include "save/floor-writer.h"
 #include "spell-class/spells-mirror-master.h"
+#include "system/angband-system.h"
 #include "system/artifact-type-definition.h"
 #include "system/dungeon-info.h"
 #include "system/floor-type-definition.h"
@@ -57,25 +59,26 @@ static bool check_pet_preservation_conditions(PlayerType *player_ptr, MonsterEnt
         return false;
     }
 
-    POSITION dis = distance(player_ptr->y, player_ptr->x, m_ptr->fy, m_ptr->fx);
+    auto dis = distance(player_ptr->y, player_ptr->x, m_ptr->fy, m_ptr->fx);
     if (m_ptr->is_confused() || m_ptr->is_stunned() || m_ptr->is_asleep() || (m_ptr->parent_m_idx != 0)) {
         return true;
     }
 
-    if (m_ptr->nickname && ((player_has_los_bold(player_ptr, m_ptr->fy, m_ptr->fx) && projectable(player_ptr, player_ptr->y, player_ptr->x, m_ptr->fy, m_ptr->fx)) || (los(player_ptr, m_ptr->fy, m_ptr->fx, player_ptr->y, player_ptr->x) && projectable(player_ptr, m_ptr->fy, m_ptr->fx, player_ptr->y, player_ptr->x)))) {
-        if (dis > 3) {
-            return true;
-        }
-    } else if (dis > 1) {
-        return true;
+    const auto should_preserve = m_ptr->is_named();
+    auto sight_from_player = player_ptr->current_floor_ptr->has_los({ m_ptr->fy, m_ptr->fx });
+    sight_from_player &= projectable(player_ptr, player_ptr->y, player_ptr->x, m_ptr->fy, m_ptr->fx);
+    auto sight_from_monster = los(player_ptr, m_ptr->fy, m_ptr->fx, player_ptr->y, player_ptr->x);
+    sight_from_monster &= projectable(player_ptr, m_ptr->fy, m_ptr->fx, player_ptr->y, player_ptr->x);
+    if (should_preserve && (sight_from_player || sight_from_monster)) {
+        return dis > 3;
     }
 
-    return false;
+    return dis > 1;
 }
 
 static void sweep_preserving_pet(PlayerType *player_ptr)
 {
-    if (player_ptr->wild_mode || player_ptr->current_floor_ptr->inside_arena || player_ptr->phase_out) {
+    if (player_ptr->wild_mode || player_ptr->current_floor_ptr->inside_arena || AngbandSystem::get_instance().is_phase_out()) {
         return;
     }
 
@@ -99,13 +102,11 @@ static void record_pet_diary(PlayerType *player_ptr)
 
     for (MONSTER_IDX i = player_ptr->current_floor_ptr->m_max - 1; i >= 1; i--) {
         auto *m_ptr = &player_ptr->current_floor_ptr->m_list[i];
-        GAME_TEXT m_name[MAX_NLEN];
-        if (!m_ptr->is_valid() || !m_ptr->is_pet() || !m_ptr->nickname || (player_ptr->riding == i)) {
+        if (!m_ptr->is_valid() || !m_ptr->is_named_pet() || (player_ptr->riding == i)) {
             continue;
         }
 
-        monster_desc(player_ptr, m_name, m_ptr, MD_ASSUME_VISIBLE | MD_INDEF_VISIBLE);
-        exe_write_diary(player_ptr, DIARY_NAMED_PET, RECORD_NAMED_PET_MOVED, m_name);
+        exe_write_diary(player_ptr, DiaryKind::NAMED_PET, RECORD_NAMED_PET_MOVED, monster_desc(player_ptr, m_ptr, MD_ASSUME_VISIBLE | MD_INDEF_VISIBLE));
     }
 }
 
@@ -130,9 +131,8 @@ static void preserve_pet(PlayerType *player_ptr)
         }
 
         if (is_seen(player_ptr, m_ptr)) {
-            GAME_TEXT m_name[MAX_NLEN];
-            monster_desc(player_ptr, m_name, m_ptr, 0);
-            msg_format(_("%sは消え去った！", "%^s disappears!"), m_name);
+            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
+            msg_format(_("%sは消え去った！", "%s^ disappears!"), m_name.data());
         }
 
         delete_monster_idx(player_ptr, i);
@@ -254,24 +254,25 @@ static void preserve_info(PlayerType *player_ptr)
 {
     auto quest_r_idx = MonsterRace::empty_id();
     const auto &quest_list = QuestList::get_instance();
-    for (const auto &[q_idx, q_ref] : quest_list) {
-        auto quest_relating_monster = (q_ref.status == QuestStatusType::TAKEN);
-        quest_relating_monster &= ((q_ref.type == QuestKindType::KILL_LEVEL) || (q_ref.type == QuestKindType::RANDOM));
-        quest_relating_monster &= (q_ref.level == player_ptr->current_floor_ptr->dun_level);
-        quest_relating_monster &= (player_ptr->dungeon_idx == q_ref.dungeon);
-        quest_relating_monster &= !(q_ref.flags & QUEST_FLAG_PRESET);
+    const auto &floor = *player_ptr->current_floor_ptr;
+    for (const auto &[q_idx, quest] : quest_list) {
+        auto quest_relating_monster = (quest.status == QuestStatusType::TAKEN);
+        quest_relating_monster &= ((quest.type == QuestKindType::KILL_LEVEL) || (quest.type == QuestKindType::RANDOM));
+        quest_relating_monster &= (quest.level == floor.dun_level);
+        quest_relating_monster &= (floor.dungeon_idx == quest.dungeon);
+        quest_relating_monster &= !(quest.flags & QUEST_FLAG_PRESET);
         if (quest_relating_monster) {
-            quest_r_idx = q_ref.r_idx;
+            quest_r_idx = quest.r_idx;
         }
     }
 
-    for (DUNGEON_IDX i = 1; i < player_ptr->current_floor_ptr->m_max; i++) {
-        auto *m_ptr = &player_ptr->current_floor_ptr->m_list[i];
+    for (DUNGEON_IDX i = 1; i < floor.m_max; i++) {
+        auto *m_ptr = &floor.m_list[i];
         if (!m_ptr->is_valid() || (quest_r_idx != m_ptr->r_idx)) {
             continue;
         }
 
-        const auto &r_ref = m_ptr->get_real_r_ref();
+        const auto &r_ref = m_ptr->get_real_monrace();
         if (r_ref.kind_flags.has(MonsterKindType::UNIQUE) || (r_ref.population_flags.has(MonsterPopulationType::NAZGUL))) {
             continue;
         }
@@ -286,7 +287,7 @@ static void preserve_info(PlayerType *player_ptr)
         }
 
         if (o_ptr->is_fixed_artifact()) {
-            artifacts_info.at(o_ptr->fixed_artifact_idx).floor_id = 0;
+            o_ptr->get_fixed_artifact().floor_id = 0;
         }
     }
 }
@@ -326,35 +327,38 @@ static void jump_floors(PlayerType *player_ptr)
         move_num *= 2;
     }
 
-    auto &floor_ref = *player_ptr->current_floor_ptr;
+    auto &floor = *player_ptr->current_floor_ptr;
+    const auto &dungeon = floor.get_dungeon_definition();
     if (any_bits(mode, CFM_DOWN)) {
-        if (!floor_ref.is_in_dungeon()) {
-            move_num = dungeons_info[player_ptr->dungeon_idx].mindepth;
+        if (!floor.is_in_dungeon()) {
+            move_num = dungeon.mindepth;
         }
     } else if (any_bits(mode, CFM_UP)) {
-        if (floor_ref.dun_level + move_num < dungeons_info[player_ptr->dungeon_idx].mindepth) {
-            move_num = -floor_ref.dun_level;
+        if (floor.dun_level + move_num < dungeon.mindepth) {
+            move_num = -floor.dun_level;
         }
     }
 
-    floor_ref.dun_level += move_num;
+    floor.dun_level += move_num;
 }
 
 static void exit_to_wilderness(PlayerType *player_ptr)
 {
-    if (player_ptr->current_floor_ptr->is_in_dungeon() || (player_ptr->dungeon_idx == 0)) {
+    auto &floor = *player_ptr->current_floor_ptr;
+    if (floor.is_in_dungeon() || (floor.dungeon_idx == 0)) {
         return;
     }
 
     player_ptr->leaving_dungeon = true;
     if (!vanilla_town && !lite_town) {
-        player_ptr->wilderness_y = dungeons_info[player_ptr->dungeon_idx].dy;
-        player_ptr->wilderness_x = dungeons_info[player_ptr->dungeon_idx].dx;
+        const auto &dungeon = floor.get_dungeon_definition();
+        player_ptr->wilderness_y = dungeon.dy;
+        player_ptr->wilderness_x = dungeon.dx;
     }
 
-    player_ptr->recall_dungeon = player_ptr->dungeon_idx;
+    player_ptr->recall_dungeon = floor.dungeon_idx;
     player_ptr->word_recall = 0;
-    player_ptr->dungeon_idx = 0;
+    floor.reset_dungeon_index();
     player_ptr->change_floor_mode &= ~CFM_SAVE_FLOORS; // TODO
 }
 

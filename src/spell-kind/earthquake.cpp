@@ -1,6 +1,4 @@
-﻿#include "spell-kind/earthquake.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
+#include "spell-kind/earthquake.h"
 #include "core/window-redrawer.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "dungeon/quest.h"
@@ -36,6 +34,7 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "util/bit-flags-calculator.h"
 #include "view/display-messages.h"
@@ -53,7 +52,7 @@
 bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MONSTER_IDX m_idx)
 {
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if ((inside_quest(floor_ptr->quest_number) && quest_type::is_fixed(floor_ptr->quest_number)) || !floor_ptr->dun_level) {
+    if ((floor_ptr->is_in_quest() && QuestType::is_fixed(floor_ptr->quest_number)) || !floor_ptr->dun_level) {
         return false;
     }
 
@@ -129,44 +128,29 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
             sx = x;
         }
 
-        switch (randint1(3)) {
-        case 1: {
-            msg_print(_("ダンジョンの壁が崩れた！", "The dungeon's ceiling collapses!"));
-            break;
-        }
-        case 2: {
-            msg_print(_("ダンジョンの床が不自然にねじ曲がった！", "The dungeon's floor twists in an unnatural way!"));
-            break;
-        }
-        default: {
-            msg_print(_("ダンジョンが揺れた！崩れた岩が頭に降ってきた！", "The dungeon quakes!  You are pummeled with debris!"));
-            break;
-        }
-        }
+        constexpr static auto msgs = {
+            _("ダンジョンの壁が崩れた！", "The dungeon's ceiling collapses!"),
+            _("ダンジョンの床が不自然にねじ曲がった！", "The dungeon's floor twists in an unnatural way!"),
+            _("ダンジョンが揺れた！崩れた岩が頭に降ってきた！", "The dungeon quakes!  You are pummeled with debris!"),
+        };
+        msg_print(rand_choice(msgs));
 
         if (!sn) {
             msg_print(_("あなたはひどい怪我を負った！", "You are severely crushed!"));
             damage = 200;
         } else {
-            BadStatusSetter bss(player_ptr);
-            switch (randint1(3)) {
-            case 1: {
-                msg_print(_("降り注ぐ岩をうまく避けた！", "You nimbly dodge the blast!"));
-                damage = 0;
-                break;
-            }
-            case 2: {
-                msg_print(_("岩石があなたに直撃した!", "You are bashed by rubble!"));
+            constexpr std::array<std::pair<bool, std::string_view>, 3> candidates = { {
+                { false, _("降り注ぐ岩をうまく避けた！", "You nimbly dodge the blast!") },
+                { true, _("岩石があなたに直撃した!", "You are bashed by rubble!") },
+                { true, _("あなたは床と壁との間に挟まれてしまった！", "You are crushed between the floor and ceiling!") },
+            } };
+
+            const auto &[is_damaged, msg] = rand_choice(candidates);
+
+            msg_print(msg);
+            if (is_damaged) {
                 damage = damroll(10, 4);
-                (void)bss.mod_stun(randint1(50));
-                break;
-            }
-            case 3: {
-                msg_print(_("あなたは床と壁との間に挟まれてしまった！", "You are crushed between the floor and ceiling!"));
-                damage = damroll(10, 4);
-                (void)bss.mod_stun(randint1(50));
-                break;
-            }
+                BadStatusSetter(player_ptr).mod_stun(randint1(50));
             }
 
             (void)move_player_effect(player_ptr, sy, sx, MPE_DONT_PICKUP);
@@ -177,15 +161,14 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
             std::string killer;
 
             if (m_idx) {
-                GAME_TEXT m_name[MAX_NLEN];
                 auto *m_ptr = &floor_ptr->m_list[m_idx];
-                monster_desc(player_ptr, m_name, m_ptr, MD_WRONGDOER_NAME);
-                killer = format(_("%sの起こした地震", "an earthquake caused by %s"), m_name);
+                const auto m_name = monster_desc(player_ptr, m_ptr, MD_WRONGDOER_NAME);
+                killer = format(_("%sの起こした地震", "an earthquake caused by %s"), m_name.data());
             } else {
                 killer = _("地震", "an earthquake");
             }
 
-            take_hit(player_ptr, DAMAGE_ATTACK, damage, killer.data());
+            take_hit(player_ptr, DAMAGE_ATTACK, damage, killer);
         }
     }
 
@@ -208,7 +191,7 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
             }
 
             auto *m_ptr = &floor_ptr->m_list[gg_ptr->m_idx];
-            auto *r_ptr = &monraces_info[m_ptr->r_idx];
+            auto *r_ptr = &m_ptr->get_monrace();
             if (r_ptr->flags1 & RF1_QUESTOR) {
                 map[16 + yy - cy][16 + xx - cx] = false;
                 continue;
@@ -218,7 +201,6 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
                 continue;
             }
 
-            GAME_TEXT m_name[MAX_NLEN];
             sn = 0;
             if (r_ptr->behavior_flags.has_not(MonsterBehaviorType::NEVER_MOVE)) {
                 for (DIRECTION i = 0; i < 8; i++) {
@@ -264,9 +246,9 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
                 }
             }
 
-            monster_desc(player_ptr, m_name, m_ptr, 0);
+            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
             if (!ignore_unview || is_seen(player_ptr, m_ptr)) {
-                msg_format(_("%^sは苦痛で泣きわめいた！", "%^s wails out in pain!"), m_name);
+                msg_format(_("%s^は苦痛で泣きわめいた！", "%s^ wails out in pain!"), m_name.data());
             }
 
             damage = (sn ? damroll(4, 8) : (m_ptr->hp + 1));
@@ -274,16 +256,14 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
             m_ptr->hp -= damage;
             if (m_ptr->hp < 0) {
                 if (!ignore_unview || is_seen(player_ptr, m_ptr)) {
-                    msg_format(_("%^sは岩石に埋もれてしまった！", "%^s is embedded in the rock!"), m_name);
+                    msg_format(_("%s^は岩石に埋もれてしまった！", "%s^ is embedded in the rock!"), m_name.data());
                 }
 
                 if (gg_ptr->m_idx) {
                     const auto &m_ref = floor_ptr->m_list[gg_ptr->m_idx];
-                    if (record_named_pet && m_ref.is_pet() && m_ref.nickname) {
-                        char m2_name[MAX_NLEN];
-
-                        monster_desc(player_ptr, m2_name, m_ptr, MD_INDEF_VISIBLE);
-                        exe_write_diary(player_ptr, DIARY_NAMED_PET, RECORD_NAMED_PET_EARTHQUAKE, m2_name);
+                    if (record_named_pet && m_ref.is_named_pet()) {
+                        const auto m2_name = monster_desc(player_ptr, m_ptr, MD_INDEF_VISIBLE);
+                        exe_write_diary(player_ptr, DiaryKind::NAMED_PET, RECORD_NAMED_PET_EARTHQUAKE, m2_name);
                     }
                 }
 
@@ -336,7 +316,7 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
                 continue;
             }
 
-            cave_set_feat(player_ptr, yy, xx, feat_ground_type[randint0(100)]);
+            cave_set_feat(player_ptr, yy, xx, rand_choice(feat_ground_type));
         }
     }
 
@@ -358,7 +338,7 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
                 continue;
             }
 
-            if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::DARKNESS)) {
+            if (floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::DARKNESS)) {
                 continue;
             }
 
@@ -378,9 +358,28 @@ bool earthquake(PlayerType *player_ptr, POSITION cy, POSITION cx, POSITION r, MO
         }
     }
 
-    player_ptr->update |= (PU_UN_VIEW | PU_UN_LITE | PU_VIEW | PU_LITE | PU_FLOW | PU_MON_LITE | PU_MONSTERS);
-    player_ptr->redraw |= (PR_HEALTH | PR_UHEALTH | PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::UN_VIEW,
+        StatusRecalculatingFlag::UN_LITE,
+        StatusRecalculatingFlag::VIEW,
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::FLOW,
+        StatusRecalculatingFlag::MONSTER_LITE,
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+    };
+    rfu.set_flags(flags_srf);
+    static constexpr auto flags_mwrf = {
+        MainWindowRedrawingFlag::HEALTH,
+        MainWindowRedrawingFlag::UHEALTH,
+        MainWindowRedrawingFlag::MAP,
+    };
+    rfu.set_flags(flags_mwrf);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+    };
+    rfu.set_flags(flags_swrf);
     if (floor_ptr->grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) {
         set_superstealth(player_ptr, false);
     }

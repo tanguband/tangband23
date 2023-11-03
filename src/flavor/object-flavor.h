@@ -1,10 +1,9 @@
-﻿#pragma once
+#pragma once
 
 #include <string>
 
-void get_table_name_aux(char *out_string);
-void get_table_name(char *out_string);
-void get_table_sindarin_aux(char *out_string);
-void get_table_sindarin(char *out_string);
-void flavor_init(void);
+std::string get_table_name_aux();
+std::string get_table_name();
+std::string get_table_sindarin_aux();
+std::string get_table_sindarin();
 std::string strip_name(short bi_id);

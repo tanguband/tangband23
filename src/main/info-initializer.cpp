@@ -1,9 +1,10 @@
-﻿/*!
+/*!
  * @file info-initializer.cpp
  * @brief 変愚蛮怒のゲームデータ解析処理定義
  */
 
 #include "main/info-initializer.h"
+#include "floor/wild.h"
 #include "info-reader/artifact-reader.h"
 #include "info-reader/baseitem-reader.h"
 #include "info-reader/dungeon-reader.h"
@@ -33,13 +34,16 @@
 #include "system/player-type-definition.h"
 #include "system/terrain-type-definition.h"
 #include "util/angband-files.h"
+#include "util/string-processor.h"
 #include "view/display-messages.h"
 #include "world/world.h"
+#include <fstream>
+#include <string>
+#include <string_view>
 #include <sys/stat.h>
 #ifndef WINDOWS
 #include <sys/types.h>
 #endif
-#include <string_view>
 
 namespace {
 
@@ -74,7 +78,7 @@ constexpr bool is_vector_v = is_vector<T>::value;
  */
 static void init_header(angband_header *head, IDX num = 0)
 {
-    head->checksum = 0;
+    head->digest = {};
     head->info_num = (IDX)num;
 }
 
@@ -92,12 +96,10 @@ static void init_header(angband_header *head, IDX num = 0)
 template <typename InfoType>
 static errr init_info(std::string_view filename, angband_header &head, InfoType &info, Parser parser, Retoucher retouch = nullptr)
 {
-    char buf[1024];
-    path_build(buf, sizeof(buf), ANGBAND_DIR_EDIT, filename.data());
-
-    auto *fp = angband_fopen(buf, "r");
+    const auto &path = path_build(ANGBAND_DIR_EDIT, filename);
+    auto *fp = angband_fopen(path, FileOpenMode::READ);
     if (!fp) {
-        quit(format(_("'%s'ファイルをオープンできません。", "Cannot open '%s' file."), filename));
+        quit_fmt(_("'%s'ファイルをオープンできません。", "Cannot open '%s' file."), filename.data());
     }
 
     constexpr auto info_is_vector = is_vector_v<InfoType>;
@@ -106,19 +108,20 @@ static errr init_info(std::string_view filename, angband_header &head, InfoType 
         info.assign(head.info_num, value_type{});
     }
 
+    char buf[1024]{};
     const auto err = init_info_txt(fp, buf, &head, parser);
     angband_fclose(fp);
     if (err) {
         const auto oops = (((err > 0) && (err < PARSE_ERROR_MAX)) ? err_str[err] : _("未知の", "unknown"));
 #ifdef JP
-        msg_format("'%s'ファイルの %d 行目にエラー。", filename, error_line);
+        msg_format("'%s'ファイルの %d 行目にエラー。", filename.data(), error_line);
 #else
-        msg_format("Error %d at line %d of '%s'.", err, error_line, filename);
+        msg_format("Error %d at line %d of '%s'.", err, error_line, filename.data());
 #endif
         msg_format(_("レコード %d は '%s' エラーがあります。", "Record %d contains a '%s' error."), error_idx, oops);
         msg_format(_("構文 '%s'。", "Parsing '%s'."), buf);
         msg_print(nullptr);
-        quit(format(_("'%s'ファイルにエラー", "Error in '%s' file."), filename));
+        quit_fmt(_("'%s'ファイルにエラー", "Error in '%s' file."), filename.data());
     }
 
     if constexpr (info_is_vector) {
@@ -228,12 +231,52 @@ errr init_vaults_info()
     return init_info("VaultDefinitions.txt", vaults_header, vaults_info, parse_vaults_info);
 }
 
-/*!
- * @brief 基本情報読み込みのメインルーチン
- * @param player_ptr プレイヤーへの参照ポインタ
- * @return エラーコード
- */
-errr init_misc(PlayerType *player_ptr)
+static bool read_wilderness_definition(std::ifstream &ifs)
 {
-    return parse_fixed_map(player_ptr, "misc.txt", 0, 0, 0, 0);
+    std::string line;
+    while (!ifs.eof()) {
+        if (!std::getline(ifs, line)) {
+            return false;
+        }
+
+        if (line.empty() || line.starts_with('#')) {
+            continue;
+        }
+
+        const auto &splits = str_split(line, ':');
+        if ((splits.size() != 3) || (splits[0] != "M")) {
+            continue;
+        }
+
+        if (splits[1] == "WX") {
+            w_ptr->max_wild_x = std::stoi(splits[2]);
+        } else if (splits[1] == "WY") {
+            w_ptr->max_wild_y = std::stoi(splits[2]);
+        } else {
+            return false;
+        }
+
+        if ((w_ptr->max_wild_x > 0) && (w_ptr->max_wild_y > 0)) {
+            wilderness.assign(w_ptr->max_wild_y, std::vector<wilderness_type>(w_ptr->max_wild_x));
+            init_wilderness_encounter();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/*!
+ * @brief 荒野情報読み込み処理
+ * @return 読み込みに成功したか
+ */
+bool init_wilderness()
+{
+    const auto &path = path_build(ANGBAND_DIR_EDIT, WILDERNESS_DEFINITION);
+    std::ifstream ifs(path);
+    if (!ifs) {
+        return false;
+    }
+
+    return read_wilderness_definition(ifs);
 }

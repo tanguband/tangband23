@@ -1,4 +1,4 @@
-﻿#include "load/floor-loader.h"
+#include "load/floor-loader.h"
 #include "floor/floor-generator.h"
 #include "floor/floor-object.h"
 #include "floor/floor-save-util.h"
@@ -25,6 +25,7 @@
 #include "system/item-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "term/z-form.h"
 #include "util/angband-files.h"
 #include "world/world-object.h"
 #include "world/world.h"
@@ -195,7 +196,7 @@ errr rd_saved_floor(PlayerType *player_ptr, saved_floor_type *sf_ptr)
         monster_loader->rd_monster(m_ptr);
         auto *g_ptr = &floor_ptr->grid_array[m_ptr->fy][m_ptr->fx];
         g_ptr->m_idx = m_idx;
-        m_ptr->get_real_r_ref().cur_num++;
+        m_ptr->get_real_monrace().cur_num++;
     }
 
     return 0;
@@ -286,11 +287,13 @@ bool load_floor(PlayerType *player_ptr, saved_floor_type *sf_ptr, BIT_FLAGS mode
         old_loading_savefile_version = loading_savefile_version;
     }
 
-    char floor_savefile[sizeof(savefile) + 32];
-    sprintf(floor_savefile, "%s.F%02d", savefile, (int)sf_ptr->savefile_id);
+    auto floor_savefile = savefile.string();
+    char ext[32];
+    strnfmt(ext, sizeof(ext), ".F%02d", (int)sf_ptr->savefile_id);
+    floor_savefile.append(ext);
 
-    safe_setuid_grab(player_ptr);
-    loading_savefile = angband_fopen(floor_savefile, "rb");
+    safe_setuid_grab();
+    loading_savefile = angband_fopen(floor_savefile, FileOpenMode::READ, true);
     safe_setuid_drop();
 
     bool is_save_successful = true;
@@ -305,7 +308,7 @@ bool load_floor(PlayerType *player_ptr, saved_floor_type *sf_ptr, BIT_FLAGS mode
         }
 
         angband_fclose(loading_savefile);
-        safe_setuid_grab(player_ptr);
+        safe_setuid_grab();
         if (!(mode & SLF_NO_KILL)) {
             (void)fd_kill(floor_savefile);
         }

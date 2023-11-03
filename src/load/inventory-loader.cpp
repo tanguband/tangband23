@@ -1,4 +1,4 @@
-﻿#include "load/inventory-loader.h"
+#include "load/inventory-loader.h"
 #include "inventory/inventory-slot-types.h"
 #include "load/item/item-loader-factory.h"
 #include "load/load-util.h"
@@ -38,7 +38,7 @@ static errr rd_inventory(PlayerType *player_ptr)
 
         ItemEntity item;
         item_loader->rd_item(&item);
-        if (!item.bi_id) {
+        if (!item.is_valid()) {
             return 53;
         }
 

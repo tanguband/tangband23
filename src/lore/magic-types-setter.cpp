@@ -1,6 +1,7 @@
-﻿#include "lore/magic-types-setter.h"
+#include "lore/magic-types-setter.h"
 #include "lore/lore-calculator.h"
 #include "lore/lore-util.h"
+#include "monster-race/race-brightness-mask.h"
 #include "monster-race/race-flags3.h"
 #include "monster-race/race-flags7.h"
 #include "player-base/player-class.h"
@@ -242,6 +243,12 @@ void set_ball_types(PlayerType *player_ptr, lore_type *lore_ptr)
         lore_ptr->vp[lore_ptr->vn] = lore_ptr->tmp_msg[lore_ptr->vn];
         lore_ptr->color[lore_ptr->vn++] = TERM_L_DARK;
     }
+
+    if (lore_ptr->ability_flags.has(MonsterAbilityType::BA_METEOR)) {
+        set_damage(player_ptr, lore_ptr, MonsterAbilityType::BA_METEOR, _("メテオスウォーム%s", "invoke meteor swarm%s"));
+        lore_ptr->vp[lore_ptr->vn] = lore_ptr->tmp_msg[lore_ptr->vn];
+        lore_ptr->color[lore_ptr->vn++] = TERM_UMBER;
+    }
 }
 
 void set_particular_types(PlayerType *player_ptr, lore_type *lore_ptr)
@@ -368,6 +375,12 @@ void set_bolt_types(PlayerType *player_ptr, lore_type *lore_ptr)
         lore_ptr->color[lore_ptr->vn++] = TERM_L_DARK;
     }
 
+    if (lore_ptr->ability_flags.has(MonsterAbilityType::BO_METEOR)) {
+        set_damage(player_ptr, lore_ptr, MonsterAbilityType::BO_METEOR, _("メテオストライク%s", "produce meteor strikes%s"));
+        lore_ptr->vp[lore_ptr->vn] = lore_ptr->tmp_msg[lore_ptr->vn];
+        lore_ptr->color[lore_ptr->vn++] = TERM_UMBER;
+    }
+
     if (lore_ptr->ability_flags.has(MonsterAbilityType::MISSILE)) {
         set_damage(player_ptr, lore_ptr, MonsterAbilityType::MISSILE, _("マジックミサイル%s", "produce magic missiles%s"));
         lore_ptr->vp[lore_ptr->vn] = lore_ptr->tmp_msg[lore_ptr->vn];
@@ -462,7 +475,7 @@ void set_teleport_types(lore_type *lore_ptr)
 void set_floor_types(PlayerType *player_ptr, lore_type *lore_ptr)
 {
     if (lore_ptr->ability_flags.has(MonsterAbilityType::DARKNESS)) {
-        if (!PlayerClass(player_ptr).equals(PlayerClassType::NINJA) || lore_ptr->r_ptr->kind_flags.has_not(MonsterKindType::UNDEAD) || lore_ptr->r_ptr->resistance_flags.has(MonsterResistanceType::HURT_LITE) || (lore_ptr->r_ptr->flags7 & RF7_DARK_MASK)) {
+        if (!PlayerClass(player_ptr).equals(PlayerClassType::NINJA) || lore_ptr->r_ptr->kind_flags.has_not(MonsterKindType::UNDEAD) || lore_ptr->r_ptr->resistance_flags.has(MonsterResistanceType::HURT_LITE) || (lore_ptr->r_ptr->brightness_flags.has_any_of(dark_mask))) {
             lore_ptr->vp[lore_ptr->vn] = _("暗闇", "create darkness");
             lore_ptr->color[lore_ptr->vn++] = TERM_L_DARK;
         } else {
@@ -566,6 +579,11 @@ void set_summon_types(lore_type *lore_ptr)
 
     if (lore_ptr->ability_flags.has(MonsterAbilityType::S_UNIQUE)) {
         lore_ptr->vp[lore_ptr->vn] = _("ユニーク・モンスター召喚", "summon Unique Monsters");
+        lore_ptr->color[lore_ptr->vn++] = TERM_VIOLET;
+    }
+
+    if (lore_ptr->ability_flags.has(MonsterAbilityType::S_DEAD_UNIQUE)) {
+        lore_ptr->vp[lore_ptr->vn] = _("ユニーク・モンスター口寄せ", "animate Unique Monsters");
         lore_ptr->color[lore_ptr->vn++] = TERM_VIOLET;
     }
 }

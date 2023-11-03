@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 剣に耐性等の追加効果を付与する処理
  * @date 2022/03/22
  * @author Hourier
@@ -77,8 +77,7 @@ void SwordEnchanter::give_cursed()
     const auto sval = this->o_ptr->bi_key.sval();
     while (true) {
         this->o_ptr->ego_idx = get_random_ego(INVEN_MAIN_HAND, false);
-        const auto *e_ptr = &egos_info[this->o_ptr->ego_idx];
-        if ((sval != SV_HAYABUSA) || (e_ptr->max_pval >= 0)) {
+        if ((sval != SV_HAYABUSA) || (this->o_ptr->get_ego().max_pval >= 0)) {
             return;
         }
 

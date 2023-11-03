@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 武器でも防具でもアクセサリでもない、その他のアイテム群を生成・強化する処理
  * @date 2022/02/23
  * @author Hourier
@@ -9,6 +9,7 @@
 #include "artifact/random-art-generator.h"
 #include "game-option/cheat-options.h"
 #include "inventory/inventory-slot-types.h"
+#include "monster-floor/place-monster-types.h"
 #include "monster-race/monster-race-hook.h"
 #include "monster-race/monster-race.h"
 #include "monster-race/race-indice-types.h"
@@ -60,7 +61,7 @@ void OtherItemsEnchanter::apply_magic()
         this->enchant_wand_staff();
         break;
     case ItemKindType::ROD:
-        this->o_ptr->pval = baseitems_info[this->o_ptr->bi_id].pval;
+        this->o_ptr->pval = this->o_ptr->get_baseitem().pval;
         break;
     case ItemKindType::CAPTURE:
         this->o_ptr->pval = 0;
@@ -91,7 +92,7 @@ void OtherItemsEnchanter::apply_magic()
  */
 void OtherItemsEnchanter::enchant_wand_staff()
 {
-    const auto &baseitem = baseitems_info[this->o_ptr->bi_id];
+    const auto &baseitem = this->o_ptr->get_baseitem();
     this->o_ptr->pval = baseitem.pval / 2 + randint1((baseitem.pval + 1) / 2);
 }
 
@@ -138,7 +139,7 @@ void OtherItemsEnchanter::generate_figurine()
  */
 void OtherItemsEnchanter::generate_corpse()
 {
-    const std::unordered_map<OBJECT_SUBTYPE_VALUE, MonsterDropType> match = {
+    const std::unordered_map<int, MonsterDropType> match = {
         { SV_SKELETON, MonsterDropType::DROP_SKELETON },
         { SV_CORPSE, MonsterDropType::DROP_CORPSE },
     };
@@ -147,7 +148,7 @@ void OtherItemsEnchanter::generate_corpse()
     auto *floor_ptr = this->player_ptr->current_floor_ptr;
     MonsterRaceId r_idx;
     while (true) {
-        r_idx = get_mon_num(this->player_ptr, 0, floor_ptr->dun_level, 0);
+        r_idx = get_mon_num(this->player_ptr, 0, floor_ptr->dun_level, PM_NONE);
         auto &r_ref = monraces_info[r_idx];
         auto check = (floor_ptr->dun_level < r_ref.level) ? (r_ref.level - floor_ptr->dun_level) : 0;
         const auto sval = this->o_ptr->bi_key.sval();
@@ -199,7 +200,7 @@ void OtherItemsEnchanter::generate_statue()
  */
 void OtherItemsEnchanter::generate_chest()
 {
-    auto obj_level = baseitems_info[this->o_ptr->bi_id].level;
+    auto obj_level = this->o_ptr->get_baseitem().level;
     if (obj_level <= 0) {
         return;
     }

@@ -1,4 +1,4 @@
-﻿#include "spell-kind/spells-lite.h"
+#include "spell-kind/spells-lite.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
@@ -17,6 +17,7 @@
 #include "monster/monster-update.h"
 #include "player/special-defense-types.h"
 #include "spell-kind/spells-launcher.h"
+#include "system/angband-system.h"
 #include "system/dungeon-info.h"
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
@@ -65,7 +66,7 @@ static void cave_temp_room_lite(PlayerType *player_ptr, const std::vector<Pos2D>
         if (g_ptr->m_idx) {
             PERCENTAGE chance = 25;
             auto *m_ptr = &player_ptr->current_floor_ptr->m_list[g_ptr->m_idx];
-            auto *r_ptr = &monraces_info[m_ptr->r_idx];
+            auto *r_ptr = &m_ptr->get_monrace();
             update_monster(player_ptr, g_ptr->m_idx, false);
             if (r_ptr->behavior_flags.has(MonsterBehaviorType::STUPID)) {
                 chance = 10;
@@ -77,9 +78,8 @@ static void cave_temp_room_lite(PlayerType *player_ptr, const std::vector<Pos2D>
             if (m_ptr->is_asleep() && (randint0(100) < chance)) {
                 (void)set_monster_csleep(player_ptr, g_ptr->m_idx, 0);
                 if (m_ptr->ml) {
-                    GAME_TEXT m_name[MAX_NLEN];
-                    monster_desc(player_ptr, m_name, m_ptr, 0);
-                    msg_format(_("%^sが目を覚ました。", "%^s wakes up."), m_name);
+                    const auto m_name = monster_desc(player_ptr, m_ptr, 0);
+                    msg_format(_("%s^が目を覚ました。", "%s^ wakes up."), m_name.data());
                 }
             }
         }
@@ -234,7 +234,7 @@ static void cave_temp_room_aux(
         if (!in_bounds2(floor_ptr, y, x)) {
             return;
         }
-        if (distance(player_ptr->y, player_ptr->x, y, x) > get_max_range(player_ptr)) {
+        if (distance(player_ptr->y, player_ptr->x, y, x) > AngbandSystem::get_instance().get_max_range()) {
             return;
         }
 
@@ -423,7 +423,7 @@ bool starlight(PlayerType *player_ptr, bool magic)
  */
 bool lite_area(PlayerType *player_ptr, int dam, POSITION rad)
 {
-    if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::DARKNESS)) {
+    if (player_ptr->current_floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::DARKNESS)) {
         msg_print(_("ダンジョンが光を吸収した。", "The darkness of this dungeon absorbs your light."));
         return false;
     }

@@ -1,4 +1,4 @@
-﻿#include "info-reader/general-parser.h"
+#include "info-reader/general-parser.h"
 #include "artifact/fixed-art-types.h"
 #include "dungeon/quest.h"
 #include "grid/feature.h"
@@ -36,33 +36,35 @@ errr init_info_txt(FILE *fp, char *buf, angband_header *head, Parser parse_info_
     error_idx = -1;
     error_line = 0;
 
-    errr err;
+    util::SHA256 sha256;
+
     while (angband_fgets(fp, buf, 1024) == 0) {
         error_line++;
-        if (!buf[0] || (buf[0] == '#')) {
+        const std::string_view line = buf;
+        if (line.empty() || line.starts_with('#')) {
             continue;
         }
 
-        if (buf[1] != ':') {
+        if (!line.substr(1).starts_with(':')) {
             return PARSE_ERROR_GENERIC;
         }
 
-        if (buf[0] == 'V') {
+        if (line.starts_with('V')) {
             continue;
         }
 
-        if (buf[0] != 'N' && buf[0] != 'D') {
-            int i;
-            for (i = 0; buf[i]; i++) {
-                head->checksum += (byte)buf[i];
-                head->checksum ^= (1U << (i % 8));
-            }
+        // 文字コードの差異を吸収するため、日本語が含まれる可能性のある
+        // 「N:」「D:」「J:」はハッシュ計算から除外する
+        if (!line.starts_with('N') && !line.starts_with('D') && !line.starts_with('J')) {
+            sha256.update(line);
         }
 
-        if ((err = parse_info_txt_line(buf, head)) != 0) {
+        if (auto err = parse_info_txt_line(line, head); err != 0) {
             return err;
         }
     }
+
+    head->digest = sha256.digest();
 
     return 0;
 }
@@ -118,7 +120,7 @@ parse_error_type parse_line_feature(FloorType *floor_ptr, char *buf)
                 letter[index].artifact = i2enum<FixedArtifactId>(atoi(zz[6] + 1));
             }
         } else if (zz[6][0] == '!') {
-            if (inside_quest(floor_ptr->quest_number)) {
+            if (floor_ptr->is_in_quest()) {
                 const auto &quest_list = QuestList::get_instance();
                 letter[index].artifact = quest_list[floor_ptr->quest_number].reward_artifact_idx;
             }
@@ -143,13 +145,12 @@ parse_error_type parse_line_feature(FloorType *floor_ptr, char *buf)
                 letter[index].object = (OBJECT_IDX)atoi(zz[4] + 1);
             }
         } else if (zz[4][0] == '!') {
-            if (inside_quest(floor_ptr->quest_number)) {
-                const auto &quest_list = QuestList::get_instance();
-                const auto a_idx = quest_list[floor_ptr->quest_number].reward_artifact_idx;
-                if (a_idx != FixedArtifactId::NONE) {
-                    const auto &a_ref = artifacts_info.at(a_idx);
-                    if (a_ref.gen_flags.has_not(ItemGenerationTraitType::INSTA_ART)) {
-                        letter[index].object = lookup_baseitem_id(a_ref.bi_key);
+            if (floor_ptr->is_in_quest()) {
+                const auto &quest = QuestList::get_instance()[floor_ptr->quest_number];
+                if (quest.has_reward()) {
+                    const auto &artifact = quest.get_reward();
+                    if (artifact.gen_flags.has_not(ItemGenerationTraitType::INSTA_ART)) {
+                        letter[index].object = lookup_baseitem_id(artifact.bi_key);
                     }
                 }
             }
@@ -227,9 +228,9 @@ parse_error_type parse_line_building(char *buf)
     switch (s[0]) {
     case 'N': {
         if (tokenize(s + 2, 3, zz, 0) == 3) {
-            strcpy(building[index].name, zz[0]);
-            strcpy(building[index].owner_name, zz[1]);
-            strcpy(building[index].owner_race, zz[2]);
+            strcpy(buildings[index].name, zz[0]);
+            strcpy(buildings[index].owner_name, zz[1]);
+            strcpy(buildings[index].owner_race, zz[2]);
             break;
         }
 
@@ -238,12 +239,12 @@ parse_error_type parse_line_building(char *buf)
     case 'A': {
         if (tokenize(s + 2, 8, zz, 0) >= 7) {
             int action_index = atoi(zz[0]);
-            strcpy(building[index].act_names[action_index], zz[1]);
-            building[index].member_costs[action_index] = (PRICE)atoi(zz[2]);
-            building[index].other_costs[action_index] = (PRICE)atoi(zz[3]);
-            building[index].letters[action_index] = zz[4][0];
-            building[index].actions[action_index] = static_cast<int16_t>(atoi(zz[5]));
-            building[index].action_restr[action_index] = static_cast<int16_t>(atoi(zz[6]));
+            strcpy(buildings[index].act_names[action_index], zz[1]);
+            buildings[index].member_costs[action_index] = (PRICE)atoi(zz[2]);
+            buildings[index].other_costs[action_index] = (PRICE)atoi(zz[3]);
+            buildings[index].letters[action_index] = zz[4][0];
+            buildings[index].actions[action_index] = static_cast<int16_t>(atoi(zz[5]));
+            buildings[index].action_restr[action_index] = static_cast<int16_t>(atoi(zz[6]));
             break;
         }
 
@@ -253,7 +254,7 @@ parse_error_type parse_line_building(char *buf)
         auto pct_max = PLAYER_CLASS_TYPE_MAX;
         auto n = tokenize(s + 2, pct_max, zz, 0);
         for (auto i = 0; i < pct_max; i++) {
-            building[index].member_class[i] = (i < n) ? atoi(zz[i]) : 1;
+            buildings[index].member_class[i] = (i < n) ? atoi(zz[i]) : 1;
         }
 
         break;
@@ -261,7 +262,7 @@ parse_error_type parse_line_building(char *buf)
     case 'R': {
         auto n = tokenize(s + 2, MAX_RACES, zz, 0);
         for (int i = 0; i < MAX_RACES; i++) {
-            building[index].member_race[i] = (i < n) ? atoi(zz[i]) : 1;
+            buildings[index].member_race[i] = (i < n) ? atoi(zz[i]) : 1;
         }
 
         break;
@@ -270,7 +271,7 @@ parse_error_type parse_line_building(char *buf)
         int n;
         n = tokenize(s + 2, MAX_MAGIC, zz, 0);
         for (int i = 0; i < MAX_MAGIC; i++) {
-            building[index].member_realm[i + 1] = ((i < n) ? static_cast<int16_t>(atoi(zz[i])) : 1);
+            buildings[index].member_realm[i + 1] = ((i < n) ? static_cast<int16_t>(atoi(zz[i])) : 1);
         }
 
         break;

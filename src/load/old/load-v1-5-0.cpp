@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 変愚蛮怒 v1.5.0以前の旧いセーブデータを読み込む処理
  * @date 2020/07/04
  * @author Hourier
@@ -49,7 +49,6 @@
 #include "system/player-type-definition.h"
 #include "util/bit-flags-calculator.h"
 #include "util/enum-converter.h"
-#include "util/quarks.h"
 #include "world/world-object.h"
 #include "world/world.h"
 
@@ -133,19 +132,19 @@ void rd_item_old(ItemEntity *o_ptr)
                 o_ptr->curse_flags.set(CurseTraitType::PERMA_CURSE);
             }
             if (o_ptr->is_fixed_artifact()) {
-                const auto &a_ref = artifacts_info.at(o_ptr->fixed_artifact_idx);
-                if (a_ref.gen_flags.has(ItemGenerationTraitType::HEAVY_CURSE)) {
+                const auto &artifact = o_ptr->get_fixed_artifact();
+                if (artifact.gen_flags.has(ItemGenerationTraitType::HEAVY_CURSE)) {
                     o_ptr->curse_flags.set(CurseTraitType::HEAVY_CURSE);
                 }
-                if (a_ref.gen_flags.has(ItemGenerationTraitType::PERMA_CURSE)) {
+                if (artifact.gen_flags.has(ItemGenerationTraitType::PERMA_CURSE)) {
                     o_ptr->curse_flags.set(CurseTraitType::PERMA_CURSE);
                 }
             } else if (o_ptr->is_ego()) {
-                const auto &e_ref = egos_info[o_ptr->ego_idx];
-                if (e_ref.gen_flags.has(ItemGenerationTraitType::HEAVY_CURSE)) {
+                const auto &ego = o_ptr->get_ego();
+                if (ego.gen_flags.has(ItemGenerationTraitType::HEAVY_CURSE)) {
                     o_ptr->curse_flags.set(CurseTraitType::HEAVY_CURSE);
                 }
-                if (e_ref.gen_flags.has(ItemGenerationTraitType::PERMA_CURSE)) {
+                if (ego.gen_flags.has(ItemGenerationTraitType::PERMA_CURSE)) {
                     o_ptr->curse_flags.set(CurseTraitType::PERMA_CURSE);
                 }
             }
@@ -310,14 +309,14 @@ void rd_item_old(ItemEntity *o_ptr)
     char buf[128];
     rd_string(buf, sizeof(buf));
     if (buf[0]) {
-        o_ptr->inscription = quark_add(buf);
+        o_ptr->inscription.emplace(buf);
     }
 
     rd_string(buf, sizeof(buf));
 
     /*!< @todo 元々このif文には末尾に";"が付いていた、バグかもしれない */
     if (buf[0]) {
-        o_ptr->art_name = quark_add(buf);
+        o_ptr->randart_name.emplace(buf);
     }
     {
         auto tmp32s = rd_s32b();
@@ -340,15 +339,15 @@ void rd_item_old(ItemEntity *o_ptr)
     }
 
     if (o_ptr->is_fixed_artifact()) {
-        const auto &a_ref = artifacts_info.at(o_ptr->fixed_artifact_idx);
-        if (a_ref.name.empty()) {
+        const auto &artifact = o_ptr->get_fixed_artifact();
+        if (artifact.name.empty()) {
             o_ptr->fixed_artifact_idx = FixedArtifactId::NONE;
         }
     }
 
     if (o_ptr->is_ego()) {
-        const auto &e_ref = egos_info[o_ptr->ego_idx];
-        if (e_ref.name.empty()) {
+        const auto &ego = o_ptr->get_ego();
+        if (ego.name.empty()) {
             o_ptr->ego_idx = EgoType::NONE;
         }
     }
@@ -370,7 +369,7 @@ void rd_monster_old(PlayerType *player_ptr, MonsterEntity *m_ptr)
     }
 
     if (h_older_than(1, 0, 14)) {
-        auto *r_ptr = &monraces_info[m_ptr->r_idx];
+        auto *r_ptr = &m_ptr->get_monrace();
 
         m_ptr->sub_align = SUB_ALIGN_NEUTRAL;
         if (r_ptr->kind_flags.has(MonsterKindType::EVIL)) {
@@ -473,12 +472,12 @@ void rd_monster_old(PlayerType *player_ptr, MonsterEntity *m_ptr)
     }
 
     if (h_older_than(0, 1, 3)) {
-        m_ptr->nickname = 0;
+        m_ptr->nickname.clear();
     } else {
         char buf[128];
         rd_string(buf, sizeof(buf));
         if (buf[0]) {
-            m_ptr->nickname = quark_add(buf);
+            m_ptr->nickname = buf;
         }
     }
 
@@ -533,7 +532,7 @@ void set_old_lore(MonsterRaceInfo *r_ptr, BIT_FLAGS f4, const MonsterRaceId r_id
     move_RF4_BR_to_RFR(r_ptr, f4, RF4_BR_WALL, MonsterResistanceType::RESIST_FORCE);
 
     if (f4 & RF4_BR_CONF) {
-        r_ptr->r_flags3 |= RF3_NO_CONF;
+        r_ptr->r_resistance_flags.set(MonsterResistanceType::NO_CONF);
     }
 
     if (r_idx == MonsterRaceId::STORMBRINGER) {
@@ -557,9 +556,9 @@ errr rd_dungeon_old(PlayerType *player_ptr)
     auto *floor_ptr = player_ptr->current_floor_ptr;
     floor_ptr->dun_level = rd_s16b();
     if (h_older_than(0, 3, 8)) {
-        player_ptr->dungeon_idx = DUNGEON_ANGBAND;
+        floor_ptr->set_dungeon_index(DUNGEON_ANGBAND);
     } else {
-        player_ptr->dungeon_idx = rd_byte();
+        floor_ptr->set_dungeon_index(rd_byte());
     }
 
     floor_ptr->base_level = floor_ptr->dun_level;
@@ -696,7 +695,7 @@ errr rd_dungeon_old(PlayerType *player_ptr)
                 } else if (g_ptr->info & CAVE_TRAP) {
                     g_ptr->info &= ~CAVE_TRAP;
                     g_ptr->mimic = g_ptr->feat;
-                    g_ptr->feat = choose_random_trap(player_ptr);
+                    g_ptr->feat = choose_random_trap(floor_ptr);
                 } else if (g_ptr->feat == OLD_FEAT_INVIS) {
                     g_ptr->mimic = feat_floor;
                     g_ptr->feat = feat_trap_open;
@@ -766,7 +765,7 @@ errr rd_dungeon_old(PlayerType *player_ptr)
         monster_loader->rd_monster(m_ptr);
         auto *g_ptr = &floor_ptr->grid_array[m_ptr->fy][m_ptr->fx];
         g_ptr->m_idx = m_idx;
-        m_ptr->get_real_r_ref().cur_num++;
+        m_ptr->get_real_monrace().cur_num++;
     }
 
     if (h_older_than(0, 3, 13) && !floor_ptr->dun_level && !floor_ptr->inside_arena) {

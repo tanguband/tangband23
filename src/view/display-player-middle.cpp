@@ -1,4 +1,4 @@
-﻿#include "view/display-player-middle.h"
+#include "view/display-player-middle.h"
 #include "combat/shoot.h"
 #include "game-option/birth-options.h"
 #include "game-option/special-options.h"
@@ -25,6 +25,7 @@
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "timed-effect/player-deceleration.h"
 #include "timed-effect/timed-effects.h"
 #include "view/display-util.h"
@@ -52,9 +53,7 @@ static void display_player_melee_bonus(PlayerType *player_ptr, int hand, int han
 
     show_tohit += player_ptr->skill_thn / BTH_PLUS_ADJ;
 
-    char buf[160];
-    sprintf(buf, "(%+d,%+d)", (int)show_tohit, (int)show_todam);
-
+    const auto buf = format("(%+d,%+d)", (int)show_tohit, (int)show_todam);
     if (!has_melee_weapon(player_ptr, INVEN_MAIN_HAND) && !has_melee_weapon(player_ptr, INVEN_SUB_HAND)) {
         display_player_one_line(ENTRY_BARE_HAND, buf, TERM_L_BLUE);
     } else if (has_two_handed_weapons(player_ptr)) {
@@ -134,7 +133,7 @@ static void display_bow_hit_damage(PlayerType *player_ptr)
 static void display_shoot_magnification(PlayerType *player_ptr)
 {
     int tmul = 0;
-    if (player_ptr->inventory_list[INVEN_BOW].bi_id) {
+    if (player_ptr->inventory_list[INVEN_BOW].is_valid()) {
         tmul = player_ptr->inventory_list[INVEN_BOW].get_arrow_magnification();
         if (player_ptr->xtra_might) {
             tmul++;
@@ -220,16 +219,16 @@ static int calc_temporary_speed(PlayerType *player_ptr)
  */
 static void display_player_speed(PlayerType *player_ptr, TERM_COLOR attr, int base_speed, int tmp_speed)
 {
-    char buf[160];
+    std::string buf;
     if (tmp_speed) {
         if (!player_ptr->riding) {
             if (player_ptr->lightspeed) {
-                sprintf(buf, _("光速化 (+99)", "Lightspeed (+99)"));
+                buf = _("光速化 (+99)", "Lightspeed (+99)");
             } else {
-                sprintf(buf, "(%+d%+d)", base_speed - tmp_speed, tmp_speed);
+                buf = format("(%+d%+d)", base_speed - tmp_speed, tmp_speed);
             }
         } else {
-            sprintf(buf, _("乗馬中 (%+d%+d)", "Riding (%+d%+d)"), base_speed - tmp_speed, tmp_speed);
+            buf = format(_("乗馬中 (%+d%+d)", "Riding (%+d%+d)"), base_speed - tmp_speed, tmp_speed);
         }
 
         if (tmp_speed > 0) {
@@ -239,9 +238,9 @@ static void display_player_speed(PlayerType *player_ptr, TERM_COLOR attr, int ba
         }
     } else {
         if (!player_ptr->riding) {
-            sprintf(buf, "(%+d)", base_speed);
+            buf = format("(%+d)", base_speed);
         } else {
-            sprintf(buf, _("乗馬中 (%+d)", "Riding (%+d)"), base_speed);
+            buf = format(_("乗馬中 (%+d)", "Riding (%+d)"), base_speed);
         }
     }
 
@@ -258,13 +257,13 @@ static void display_player_exp(PlayerType *player_ptr)
     PlayerRace pr(player_ptr);
     int e = pr.equals(PlayerRaceType::ANDROID) ? ENTRY_EXP_ANDR : ENTRY_CUR_EXP;
     if (player_ptr->exp >= player_ptr->max_exp) {
-        display_player_one_line(e, format("%ld", player_ptr->exp), TERM_L_GREEN);
+        display_player_one_line(e, format("%d", player_ptr->exp), TERM_L_GREEN);
     } else {
-        display_player_one_line(e, format("%ld", player_ptr->exp), TERM_YELLOW);
+        display_player_one_line(e, format("%d", player_ptr->exp), TERM_YELLOW);
     }
 
     if (!pr.equals(PlayerRaceType::ANDROID)) {
-        display_player_one_line(ENTRY_MAX_EXP, format("%ld", player_ptr->max_exp), TERM_L_GREEN);
+        display_player_one_line(ENTRY_MAX_EXP, format("%d", player_ptr->max_exp), TERM_L_GREEN);
     }
 
     e = pr.equals(PlayerRaceType::ANDROID) ? ENTRY_EXP_TO_ADV_ANDR : ENTRY_EXP_TO_ADV;
@@ -272,9 +271,9 @@ static void display_player_exp(PlayerType *player_ptr)
     if (player_ptr->lev >= PY_MAX_LEVEL) {
         display_player_one_line(e, "*****", TERM_L_GREEN);
     } else if (pr.equals(PlayerRaceType::ANDROID)) {
-        display_player_one_line(e, format("%ld", (int32_t)(player_exp_a[player_ptr->lev - 1] * player_ptr->expfact / 100L)), TERM_L_GREEN);
+        display_player_one_line(e, format("%d", player_exp_a[player_ptr->lev - 1] * player_ptr->expfact / 100), TERM_L_GREEN);
     } else {
-        display_player_one_line(e, format("%ld", (int32_t)(player_exp[player_ptr->lev - 1] * player_ptr->expfact / 100L)), TERM_L_GREEN);
+        display_player_one_line(e, format("%d", player_exp[player_ptr->lev - 1] * player_ptr->expfact / 100), TERM_L_GREEN);
     }
 }
 
@@ -287,11 +286,11 @@ static void display_playtime_in_game(PlayerType *player_ptr)
     int day, hour, min;
     extract_day_hour_min(player_ptr, &day, &hour, &min);
 
-    char buf[160];
+    std::string buf;
     if (day < MAX_DAYS) {
-        sprintf(buf, _("%d日目 %2d:%02d", "Day %d %2d:%02d"), day, hour, min);
+        buf = format(_("%d日目 %2d:%02d", "Day %d %2d:%02d"), day, hour, min);
     } else {
-        sprintf(buf, _("*****日目 %2d:%02d", "Day ***** %2d:%02d"), hour, min);
+        buf = format(_("*****日目 %2d:%02d", "Day ***** %2d:%02d"), hour, min);
     }
 
     display_player_one_line(ENTRY_DAY, buf, TERM_L_GREEN);
@@ -323,7 +322,7 @@ static void display_real_playtime(void)
     uint32_t play_hour = w_ptr->play_time / (60 * 60);
     uint32_t play_min = (w_ptr->play_time / 60) % 60;
     uint32_t play_sec = w_ptr->play_time % 60;
-    display_player_one_line(ENTRY_PLAY_TIME, format("%.2lu:%.2lu:%.2lu", play_hour, play_min, play_sec), TERM_L_GREEN);
+    display_player_one_line(ENTRY_PLAY_TIME, format("%.2u:%.2u:%.2u", play_hour, play_min, play_sec), TERM_L_GREEN);
 }
 
 /*!
@@ -351,7 +350,7 @@ void display_player_middle(PlayerType *player_ptr)
     int tmp_speed = calc_temporary_speed(player_ptr);
     display_player_speed(player_ptr, attr, base_speed, tmp_speed);
     display_player_exp(player_ptr);
-    display_player_one_line(ENTRY_GOLD, format("%ld", player_ptr->au), TERM_L_GREEN);
+    display_player_one_line(ENTRY_GOLD, format("%d", player_ptr->au), TERM_L_GREEN);
     display_playtime_in_game(player_ptr);
     display_real_playtime();
 }

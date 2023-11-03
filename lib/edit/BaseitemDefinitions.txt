@@ -1685,7 +1685,7 @@ W:35:2:3000
 A:50/1
 P:0:0d0:0:0:15
 F:RES_FIRE | IGNORE_FIRE | ACTIVATE
-U:FIRE_BALL_AND_RESITANCE
+U:FIRE_BALL_AND_RESISTANCE
 
 N:147:酸:ジャスパーの
 E:Acid:Jasper
@@ -1705,7 +1705,7 @@ W:35:2:3000
 A:50/1
 P:0:0d0:0:0:15
 F:RES_COLD | IGNORE_COLD | ACTIVATE
-U:COLD_BALL_AND_RESITANCE
+U:COLD_BALL_AND_RESISTANCE
 
 N:149:苦悩:クジャク石の
 E:Woe:Malachite
@@ -3686,7 +3686,7 @@ P:0:1d1:0:0:0
 N:346:松明
 E:& Wooden Torch~
 G:~:u
-I:39:0:4000
+I:39:0:0
 W:1:30:2
 A:1/1
 F:LITE | LITE_FUEL
@@ -3695,7 +3695,7 @@ P:0:1d1:0:0:0
 N:347:真鍮のランタン
 E:& Brass Lantern~
 G:~:U
-I:39:1:7500
+I:39:1:0
 W:3:50:35
 A:3/1
 P:0:1d1:0:0:0
@@ -4095,8 +4095,8 @@ N:386:[ハルマゲドン大全]
 E:[Armageddon Tome]
 G:?:r
 I:93:3:0
-W:100:30:100000
-A:100/3
+W:90:30:100000
+A:90/3
 P:0:1d1:0:0:0
 F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
 
@@ -4403,7 +4403,7 @@ A:110/64
 P:40:2d4:-3:0:15
 F:RES_ACID | RES_FIRE | RES_COLD | RES_ELEC | RES_POIS | 
 F:RES_NETHER | RES_NEXUS | RES_CHAOS | RES_LITE | RES_DARK |
-F:RES_SHARDS | RES_SOUND | RES_DISEN | RES_CONF |
+F:RES_SHARDS | RES_SOUND | RES_DISEN | RES_CONF | RES_TIME |
 F:ACTIVATE | IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
 U:BA_MISS_3
 D:$A suit with scales of every color, surrounded in a nimbus of perfectly 
@@ -6300,8 +6300,8 @@ N:657:[天神怒罰]
 E:[Wrath of God]
 G:?:w
 I:99:3:0
-W:95:30:100000
-A:95/3
+W:90:30:100000
+A:90/3
 P:0:1d1:0:0:0
 F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
 
@@ -6452,3 +6452,62 @@ F:INT | WIS | SUST_INT | SUST_WIS
 F:RES_CHAOS | RES_CONF | RES_NEXUS | HOLD_EXP
 D:$It protects you from the power of chaos.
 D:それは混沌の力からあなたを守る。
+
+N:675:モルデンカイネン著『洞察の魔法大全』第1巻
+E:Mordekainen's Magical Compendium of Deep Thought Vol 1.
+G:?:o
+I:69:1:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+
+N:676:モルデンカイネン著『洞察の魔法大全』第2巻
+E:Mordekainen's Magical Compendium of Deep Thought Vol 2.
+G:?:o
+I:69:2:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+
+N:677:モルデンカイネン著『洞察の魔法大全』第3巻
+E:Mordekainen's Magical Compendium of Deep Thought Vol 3.
+G:?:o
+I:69:3:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+
+N:678:アーティファクトの伝承　第1巻　武器編
+E:Artifact Lore, Vol. I "Ancient Weapons"
+G:?:o
+I:69:4:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+
+N:679:アーティファクトの伝承　第2巻　防具編
+E:Artifact Lore, Vol. II, "Ancient Armor"
+G:?:o
+I:69:5:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+
+N:680:アーティファクトの伝承　第3巻　アクセサリ編
+E:Artifact Lore, Vol. III, "Ancient Magical Tools"
+G:?:o
+I:69:6:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+
+N:681:宝の地図
+E:Treasure map
+G:?:o
+I:69:7:0
+W:0:5:1
+A:0/255
+F:IGNORE_ACID | IGNORE_ELEC | IGNORE_FIRE | IGNORE_COLD
+D:$It's a cheap piece of paper.
+D:$  You should wonder if the hidden location of Gungnir is written.
+D:安っぽい紙切れだ。グングニルの隠し場所でも書いてあるのだろうか。

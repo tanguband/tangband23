@@ -1,4 +1,4 @@
-﻿/*
+/*
  * @brief 薬を飲んだ時の効果処理
  * @date 2022/03/10
  * @author Hourier
@@ -7,7 +7,6 @@
 #include "object-use/quaff/quaff-effects.h"
 #include "avatar/avatar.h"
 #include "birth/birth-stat.h"
-#include "core/player-update-types.h"
 #include "game-option/birth-options.h"
 #include "mutation/mutation-investor-remover.h"
 #include "object/object-info.h"
@@ -37,6 +36,7 @@
 #include "system/angband.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "timed-effect/player-acceleration.h"
 #include "timed-effect/player-poison.h"
 #include "timed-effect/timed-effects.h"
@@ -256,7 +256,7 @@ bool QuaffEffects::booze()
     auto ident = false;
     auto is_monk = PlayerClass(this->player_ptr).equals(PlayerClassType::MONK);
     if (!is_monk) {
-        chg_virtue(this->player_ptr, V_HARMONY, -1);
+        chg_virtue(this->player_ptr, Virtue::HARMONY, -1);
     } else if (!has_resist_conf(this->player_ptr)) {
         set_bits(this->player_ptr->special_attack, ATTACK_SUIKEN);
     }
@@ -274,7 +274,7 @@ bool QuaffEffects::booze()
         ident = true;
     }
 
-    if (!is_monk || !one_in_(13)) {
+    if (is_monk || !one_in_(13)) {
         return ident;
     }
 
@@ -322,7 +322,7 @@ bool QuaffEffects::lose_memories()
     }
 
     msg_print(_("過去の記憶が薄れていく気がする。", "You feel your memories fade."));
-    chg_virtue(this->player_ptr, V_KNOWLEDGE, -5);
+    chg_virtue(this->player_ptr, Virtue::KNOWLEDGE, -5);
     lose_exp(this->player_ptr, this->player_ptr->exp / 4);
     return true;
 }
@@ -364,8 +364,8 @@ bool QuaffEffects::detonation()
  */
 bool QuaffEffects::death()
 {
-    chg_virtue(this->player_ptr, V_VITALITY, -1);
-    chg_virtue(this->player_ptr, V_UNLIFE, 5);
+    chg_virtue(this->player_ptr, Virtue::VITALITY, -1);
+    chg_virtue(this->player_ptr, Virtue::UNLIFE, 5);
     msg_print(_("死の予感が体中を駆けめぐった。", "A feeling of Death flows through your body."));
     take_hit(this->player_ptr, DAMAGE_LOSELIFE, 5000, _("死の薬", "a potion of Death"));
     return true;
@@ -426,8 +426,8 @@ bool QuaffEffects::augmentation()
 bool QuaffEffects::enlightenment()
 {
     msg_print(_("自分の置かれている状況が脳裏に浮かんできた...", "An image of your surroundings forms in your mind..."));
-    chg_virtue(this->player_ptr, V_KNOWLEDGE, 1);
-    chg_virtue(this->player_ptr, V_ENLIGHTEN, 1);
+    chg_virtue(this->player_ptr, Virtue::KNOWLEDGE, 1);
+    chg_virtue(this->player_ptr, Virtue::ENLIGHTEN, 1);
     wiz_lite(this->player_ptr, false);
     return true;
 }
@@ -439,8 +439,8 @@ bool QuaffEffects::enlightenment()
 bool QuaffEffects::star_enlightenment()
 {
     msg_print(_("更なる啓蒙を感じた...", "You begin to feel more enlightened..."));
-    chg_virtue(this->player_ptr, V_KNOWLEDGE, 1);
-    chg_virtue(this->player_ptr, V_ENLIGHTEN, 2);
+    chg_virtue(this->player_ptr, Virtue::KNOWLEDGE, 1);
+    chg_virtue(this->player_ptr, Virtue::ENLIGHTEN, 2);
     msg_print(nullptr);
     wiz_lite(this->player_ptr, false);
     (void)do_inc_stat(this->player_ptr, A_INT);
@@ -466,7 +466,7 @@ bool QuaffEffects::experience()
         return false;
     }
 
-    chg_virtue(this->player_ptr, V_ENLIGHTEN, 1);
+    chg_virtue(this->player_ptr, Virtue::ENLIGHTEN, 1);
     if (this->player_ptr->exp >= PY_MAX_EXP) {
         return false;
     }
@@ -504,7 +504,7 @@ bool QuaffEffects::new_life()
 {
     roll_hitdice(this->player_ptr, SPOP_NONE);
     get_max_stats(this->player_ptr);
-    this->player_ptr->update |= PU_BONUS;
+    RedrawingFlagsUpdater::get_instance().set_flag(StatusRecalculatingFlag::BONUS);
     lose_all_mutations(this->player_ptr);
     return true;
 }

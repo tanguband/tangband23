@@ -1,4 +1,4 @@
-﻿#include "floor/pattern-walk.h"
+#include "floor/pattern-walk.h"
 #include "cmd-io/cmd-save.h"
 #include "core/asking-player.h"
 #include "dungeon/quest.h"
@@ -24,6 +24,7 @@
 #include "system/grid-type-definition.h"
 #include "system/player-type-definition.h"
 #include "system/terrain-type-definition.h"
+#include "term/z-form.h"
 #include "timed-effect/player-confusion.h"
 #include "timed-effect/player-cut.h"
 #include "timed-effect/player-hallucination.h"
@@ -33,6 +34,7 @@
 #include "view/display-messages.h"
 #include "world/world-movement-processor.h"
 #include "world/world.h"
+#include <algorithm>
 
 /*!
  * @brief パターン終点到達時のテレポート処理を行う
@@ -40,47 +42,39 @@
  */
 void pattern_teleport(PlayerType *player_ptr)
 {
-    DEPTH min_level = 0;
-    DEPTH max_level = 99;
-
-    if (get_check(_("他の階にテレポートしますか？", "Teleport level? "))) {
-        char ppp[80];
-        char tmp_val[160];
-
+    auto min_level = 0;
+    auto max_level = 99;
+    auto current_level = static_cast<short>(player_ptr->current_floor_ptr->dun_level);
+    if (input_check(_("他の階にテレポートしますか？", "Teleport level? "))) {
         if (ironman_downward) {
-            min_level = player_ptr->current_floor_ptr->dun_level;
+            min_level = current_level;
         }
 
-        if (player_ptr->dungeon_idx == DUNGEON_ANGBAND) {
-            if (player_ptr->current_floor_ptr->dun_level > 100) {
+        const auto &floor = *player_ptr->current_floor_ptr;
+        if (floor.dungeon_idx == DUNGEON_ANGBAND) {
+            if (floor.dun_level > 100) {
                 max_level = MAX_DEPTH - 1;
-            } else if (player_ptr->current_floor_ptr->dun_level == 100) {
+            } else if (current_level == 100) {
                 max_level = 100;
             }
         } else {
-            max_level = dungeons_info[player_ptr->dungeon_idx].maxdepth;
-            min_level = dungeons_info[player_ptr->dungeon_idx].mindepth;
+            const auto &dungeon = floor.get_dungeon_definition();
+            max_level = dungeon.maxdepth;
+            min_level = dungeon.mindepth;
         }
 
-        sprintf(ppp, _("テレポート先:(%d-%d)", "Teleport to level (%d-%d): "), (int)min_level, (int)max_level);
-        sprintf(tmp_val, "%d", (int)player_ptr->current_floor_ptr->dun_level);
-        if (!get_string(ppp, tmp_val, 10)) {
+        constexpr auto prompt = _("テレポート先", "Teleport to level");
+        const auto input_level = input_numerics(prompt, min_level, max_level, current_level);
+        if (!input_level.has_value()) {
             return;
         }
 
-        command_arg = (COMMAND_ARG)atoi(tmp_val);
-    } else if (get_check(_("通常テレポート？", "Normal teleport? "))) {
+        command_arg = input_level.value();
+    } else if (input_check(_("通常テレポート？", "Normal teleport? "))) {
         teleport_player(player_ptr, 200, TELEPORT_SPONTANEOUS);
         return;
     } else {
         return;
-    }
-
-    if (command_arg < min_level) {
-        command_arg = (COMMAND_ARG)min_level;
-    }
-    if (command_arg > max_level) {
-        command_arg = (COMMAND_ARG)max_level;
     }
 
     msg_format(_("%d 階にテレポートしました。", "You teleport to dungeon level %d."), command_arg);
@@ -91,7 +85,7 @@ void pattern_teleport(PlayerType *player_ptr)
     player_ptr->current_floor_ptr->dun_level = command_arg;
     leave_quest_check(player_ptr);
     if (record_stair) {
-        exe_write_diary(player_ptr, DIARY_PAT_TELE, 0, nullptr);
+        exe_write_diary(player_ptr, DiaryKind::PAT_TELE, 0);
     }
 
     player_ptr->current_floor_ptr->quest_number = QuestId::NONE;
@@ -196,7 +190,7 @@ bool pattern_seq(PlayerType *player_ptr, POSITION c_y, POSITION c_x, POSITION n_
         auto is_confused = effects->confusion()->is_confused();
         auto is_hallucinated = effects->hallucination()->is_hallucinated();
         if (!is_pattern_tile_cur && !is_confused && !is_stunned && !is_hallucinated) {
-            if (get_check(_("パターンの上を歩き始めると、全てを歩かなければなりません。いいですか？",
+            if (input_check(_("パターンの上を歩き始めると、全てを歩かなければなりません。いいですか？",
                     "If you start walking the Pattern, you must walk the whole way. Ok? "))) {
                 return true;
             } else {

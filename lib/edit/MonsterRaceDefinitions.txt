@@ -14284,12 +14284,14 @@ F:EMPTY_MIND | BASH_DOOR | POWERFUL | SELF_LITE_2 |
 F:IM_ACID | IM_FIRE | IM_COLD | IM_ELEC | IM_POIS |
 F:RES_LITE | RES_DARK | RES_SOUN | RES_CHAO | RES_NETH | RES_DISE |
 F:RES_WALL | RES_INER | RES_TIME | RES_GRAV | RES_PLAS | RES_NEXU | RES_SHAR |
+F:RES_VOID | RES_ABYSS
 F:NO_CONF | NO_SLEEP | NO_FEAR | NO_STUN | NONLIVING | 
 S:1_IN_6 | 
 S:BR_ACID | BR_FIRE | BR_COLD | BR_ELEC | BR_POIS | 
 S:BR_LITE | BR_DARK | BR_SOUN | BR_CONF | BR_CHAO |
 S:BR_NETH | BR_DISE | BR_FORC | BR_INER | BR_TIME | 
-S:BR_GRAV | BR_PLAS | BR_NEXU | BR_SHAR | BR_NUKE
+S:BR_GRAV | BR_PLAS | BR_NEXU | BR_SHAR | BR_NUKE |
+S:BR_VOID | BR_ABYSS
 V:150
 D:$An awesome vortex of pure magic, power radiates from its frame.
 D:純粋に魔力のみでできた恐るべき渦巻きで、辺りに魔力を発散している。
@@ -15986,12 +15988,14 @@ F:BASH_DOOR | AURA_FIRE | AURA_ELEC | AURA_COLD | SELF_LITE_2 |
 F:ANIMAL | IM_ACID | IM_FIRE | IM_COLD | IM_ELEC | IM_POIS | 
 F:RES_LITE | RES_DARK | RES_SOUN | RES_CHAO | RES_NETH | RES_DISE |
 F:RES_WALL | RES_INER | RES_TIME | RES_GRAV | RES_PLAS | RES_NEXU | RES_SHAR |
+F:RES_VOID | RES_ABYSS
 F:NO_CONF | NO_SLEEP
 S:1_IN_5 | 
 S:BR_ACID | BR_FIRE | BR_COLD | BR_ELEC | BR_POIS | 
 S:BR_LITE | BR_DARK | BR_SOUN | BR_CONF | BR_CHAO |
 S:BR_NETH | BR_DISE | BR_FORC | BR_INER | BR_TIME | 
-S:BR_GRAV | BR_PLAS | BR_NEXU | BR_SHAR | BR_NUKE
+S:BR_GRAV | BR_PLAS | BR_NEXU | BR_SHAR | BR_NUKE |
+S:BR_VOID | BR_ABYSS
 V:150
 D:$A shifting, swirling form.  It seems to be all colours and sizes and 
 D:$shapes, though the dominant form is that of a huge dog.  You feel very 
@@ -17065,14 +17069,14 @@ F:DRAGON | GOOD | DROP_CORPSE | SELF_LITE_2 |
 F:IM_ACID | IM_FIRE | IM_COLD | IM_ELEC | IM_POIS | NO_CONF | NO_SLEEP |
 F:RES_NETH | RES_LITE | RES_DARK | RES_SOUN | RES_CHAO | RES_DISE |
 F:RES_NEXU | RES_TIME | RES_INER | RES_GRAV | RES_SHAR | RES_PLAS |
-F:RES_WALL | RES_TELE | RIDING |
+F:RES_WALL | RES_TELE | RES_VOID | RES_ABYSS | RIDING |
 S:1_IN_3 |
 S:S_HI_DRAGON | S_DRAGON | S_KIN |
 S:BR_NUKE | BR_ACID | BR_ELEC | BR_FIRE |
 S:BR_COLD | BR_POIS | BR_NETH | BR_LITE | BR_DARK |
 S:BR_CONF | BR_SOUN | BR_CHAO | BR_DISE | BR_NEXU |
 S:BR_TIME | BR_INER | BR_GRAV | BR_SHAR | BR_PLAS |
-S:BR_FORC | BR_MANA | BR_DISI
+S:BR_FORC | BR_MANA | BR_DISI | BR_VOID | BR_ABYSS
 V:200
 D:$The mightiest of all dragonkind, a great wyrm of power is seldom 
 D:$encountered in our world. It can crush stars with its might.
@@ -18867,6 +18871,7 @@ F:EVIL | ANIMAL | GOOD | AURA_COLD | NONLIVING | HURT_ROCK |
 F:IM_ACID | IM_ELEC | IM_FIRE | IM_COLD | IM_POIS | HUMAN | ANGEL
 F:RES_LITE | RES_DARK | RES_NETH | RES_WATE | RES_PLAS | RES_SHAR | RES_SOUN |
 F:RES_CHAO | RES_NEXU | RES_DISE | RES_WALL | RES_INER | RES_TIME | RES_GRAV |
+F:RES_VOID | RES_ABYSS | RES_METEOR |
 F:RES_TELE | NO_FEAR | NO_STUN | NO_CONF | NO_SLEEP |
 F:CAN_SWIM | CAN_FLY | UNIQUE2 | WILD_SHORE |
 F:WILD_OCEAN | WILD_WASTE | WILD_WOOD | WILD_VOLCANO | WILD_MOUNTAIN |
@@ -18877,13 +18882,14 @@ S:BR_ELEC | BR_FIRE | BR_COLD | BR_POIS | BR_NETH | BR_LITE | BR_DARK | BR_CONF 
 S:BR_SOUN | BR_CHAO | BR_DISE | BR_NEXU | BR_TIME | BR_INER | BR_GRAV | BR_SHAR |
 S:BR_PLAS | BR_FORC | BR_MANA | BA_NUKE | BR_NUKE | BA_CHAO | BR_DISI | BA_ACID |
 S:BA_ELEC | BA_FIRE | BA_COLD | BA_POIS | BA_NETH | BA_WATE | BA_MANA | BA_DARK |
+S:BA_ABYSS | BA_VOID | BR_ABYSS | BR_VOID | BO_ABYSS | BO_VOID | BA_METEOR | BO_METEOR |
 S:DRAIN_MANA | MIND_BLAST| BRAIN_SMASH | CAUSE_1 | CAUSE_2 | CAUSE_3 | CAUSE_4 |
 S:BO_ACID | BO_ELEC | BO_FIRE | BO_COLD | BO_NETH | BO_WATE | BO_MANA |
 S:BO_PLAS | BO_ICEE | MISSILE | BLIND | CONF | SLOW | HOLD | HASTE | HAND_DOOM |
 S:HEAL | INVULNER | BLINK | TPORT | WORLD | TELE_TO | TELE_AWAY | TELE_LEVEL |
 S:PSY_SPEAR | DARKNESS | TRAPS | FORGET | ANIM_DEAD | S_KIN | S_CYBER | S_MONSTER |
 S:S_MONSTERS | S_ANT | S_SPIDER | S_HOUND | S_HYDRA | S_DEMON | S_UNDEAD |
-S:S_DRAGON | S_HI_UNDEAD | S_AMBERITES | S_UNIQUE | BA_LITE
+S:S_DRAGON | S_HI_UNDEAD | S_AMBERITES | S_UNIQUE | BA_LITE | S_DEAD_UNIQUE
 V:133
 D:$You don't know what it is.
 D:それは何が何だか分からない。
@@ -20532,21 +20538,32 @@ D:無表情で襲いかかる、二足歩行の熊のような生き物だ。
 
 #
 # OnePiecebandのプレビュー。こうしてみるとなんかサブイ……。
+# [DSKL]ワンピースも100巻超えて今更サブいこともあるまいし、アラバスタ編
+# からさらにそのまた先くらいまでを基準に強化。
+# ベースを盗賊リッチにしつつ、元素攻撃で積極的に攻めていく調子で。
 #
 N:1021:航海士『ナミ』
 E:Nami, the Mate
 G:p:o
-I:120:13d12:20:30:20
-W:8:4:150:0:0
-B:HIT:EAT_GOLD:1d9
-B:HIT:EAT_GOLD:1d9
+I:125:40d10:30:60:20
+W:30:2:1300:0:0
+B:HIT:HURT:5d6
+B:HIT:HURT:5d6
+B:TOUCH:EAT_GOLD
 B:TOUCH:EAT_ITEM
-B:TOUCH:EAT_ITEM
-F:UNIQUE | FEMALE | PREVENT_SUDDEN_MAGIC | FORCE_MAXHP | SPEAK_ALL | FRIENDLY | HUMAN |
-F:ONLY_ITEM | DROP_1D2 | DROP_GREAT | WILD_GRASS |
-F:TAKE_ITEM | OPEN_DOOR | CAN_SWIM | DROP_SKELETON | DROP_CORPSE
-S:1_IN_3
-S:HEAL | TRAPS
+F:UNIQUE | DROP_CORPSE | FORCE_MAXHP | HUMAN | FEMALE |
+F:ONLY_ITEM | DROP_1D2 | DROP_GREAT | FRIENDLY | CAN_SWIM
+F:NO_SLEEP | NO_CONF | OPEN_DOOR | MOVE_BODY
+S:1_IN_4 |
+S:TRAPS | BA_FIRE | BA_COLD | BA_ELEC | BO_FIRE | BO_COLD | BO_ELEC
+D:海賊「麦わらの一味」の航海士で、「偉大なる航路」の探求に欠かせぬ主要な役を務めている。
+D:荒事は専門外らしいが、その手に操る天候棒なる魔道具は、
+D:世界の趨勢に関わる争いの只中を生き延びるだけの力を彼女に与えているようだ。
+D:$She is a navigator for "Straw Hat Pirates" and serves as an integral part of
+D:$ their quest for the Grandline. Combat is apparently not her specialty,
+D:$ but the magical tools "the Clima-Tact" she wields in her hands seem to 
+D:$ give her the strength to survive in the midst of
+D:$ a conflict that could determine the course of the world.
 
 #
 # 強すぎる？
@@ -26702,3 +26719,48 @@ S:1_IN_6 | BR_ABYSS
 V:150
 D:$It's a abyssal whirlpool.
 D:深淵の渦巻きだ。
+
+N:1353:破壊と憎悪の化身『サルーイン』
+E:Saruin, The avatar of destruction and hatred
+G:P:w
+I:125:90d100:100:175:0
+W:79:3:66666:0:0
+B:HIT:HURT:11d13
+B:HIT:HURT:11d13
+B:HIT:HURT:11d13
+B:HIT:HURT:11d13
+F:UNIQUE | MALE | DROP_CORPSE | NONLIVING |
+F:ONLY_ITEM | DROP_2D2 | DROP_4D2 | DROP_GREAT |
+F:PREVENT_SUDDEN_MAGIC | FORCE_MAXHP | SMART |
+F:OPEN_DOOR | BASH_DOOR |
+F:EVIL | IM_ACID | IM_FIRE | IM_COLD | IM_ELEC | IM_POIS |
+F:RES_WATE | RES_SHAR | RES_LITE | RES_DARK |
+F:NO_CONF | NO_SLEEP | NO_FEAR | NO_STUN | RES_TELE
+S:1_IN_3 | S_DEAD_UNIQUE |
+S:BA_FIRE | BA_WATE | BA_ACID | ROCKET | DISPEL | BLIND | BO_MANA |
+S:HOLD | HEAL | HASTE | CONF | BRAIN_SMASH
+D:$He was born from the heart of Sayva, the goddess of destruction.
+D:$  Apparently, some foolish adventurer had given away all the Destiny Stones.
+D:破壊の女神サイヴァの心臓から生まれた存在だ。
+D:どうやら愚かなる冒険者がすべてのデステニィストーンを捧げてしまったらしい。
+
+N:1354:赤チォコヴォLv99
+E:Lv.99 Red Chiokovo
+G:B:R
+I:135:80d100:30:150:10
+W:99:6:80000:0:0:0
+B:CLAW:HURT:10d10
+B:CRUSH:HURT:8d13
+B:KICK:HURT:30d5
+B:CLAW:HURT:10d10
+F:CAN_SWIM | RIDING | POWERFUL | ANIMAL | EVIL |
+F:DROP_2D2 | DROP_GREAT |
+F:FORCE_MAXHP | UNIQUE2 |
+F:NO_CONF | NO_SLEEP | NO_FEAR |
+F:IM_FIRE | IM_COLD | IM_POIS | RES_CHAO | RES_LITE | RES_INER | RES_ABYSS | RES_GRAV | RES_METEOR
+S:1_IN_3
+S:BA_METEOR | BO_METEOR | BA_FIRE | BA_LITE | BLIND | HOLD | CONF | HEAL |
+D:$It is seldom found but greatly formidable.
+D:$  You'll be defeated without complete preparation.
+D:それはめったに出会えないが、恐ろしく強力な力を持っている。
+D:生半可な態勢で挑めばあっという間に返り討ちにされるだろう。

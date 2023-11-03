@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ダンジョンフロアの部屋生成処理 / make rooms. Used by generate.c when creating dungeons.
  * @date 2014/01/06
  * @author
@@ -38,6 +38,7 @@
 #include "room/rooms-builder.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "floor/cave.h"
+#include "floor/geometry.h"
 #include "grid/door.h"
 #include "grid/feature.h"
 #include "grid/grid.h"
@@ -75,20 +76,8 @@ void build_small_room(PlayerType *player_ptr, POSITION x0, POSITION y0)
         place_bold(player_ptr, y0 + 1, x, GB_INNER);
     }
 
-    switch (randint0(4)) {
-    case 0:
-        place_secret_door(player_ptr, y0, x0 - 1, DOOR_DEFAULT);
-        break;
-    case 1:
-        place_secret_door(player_ptr, y0, x0 + 1, DOOR_DEFAULT);
-        break;
-    case 2:
-        place_secret_door(player_ptr, y0 - 1, x0, DOOR_DEFAULT);
-        break;
-    case 3:
-        place_secret_door(player_ptr, y0 + 1, x0, DOOR_DEFAULT);
-        break;
-    }
+    const auto n = randint0(4);
+    place_secret_door(player_ptr, y0 + ddy_ddd[n], x0 + ddx_ddd[n], DOOR_DEFAULT);
 
     player_ptr->current_floor_ptr->grid_array[y0][x0].mimic = 0;
     place_bold(player_ptr, y0, x0, GB_FLOOR);
@@ -102,7 +91,7 @@ void build_cavern(PlayerType *player_ptr)
     bool light = false;
     bool done = false;
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if ((floor_ptr->dun_level <= randint1(50)) && dungeons_info[floor_ptr->dungeon_idx].flags.has_not(DungeonFeatureType::DARKNESS)) {
+    if ((floor_ptr->dun_level <= randint1(50)) && floor_ptr->get_dungeon_definition().flags.has_not(DungeonFeatureType::DARKNESS)) {
         light = true;
     }
 
@@ -394,7 +383,7 @@ void add_outer_wall(PlayerType *player_ptr, POSITION x, POSITION y, int light, P
         return;
     }
 
-    if (permanent_wall(f_ptr)) {
+    if (f_ptr->is_permanent_wall()) {
         if (light) {
             g_ptr->info |= CAVE_GLOW;
         }

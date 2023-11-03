@@ -1,4 +1,4 @@
-﻿#include "floor/object-scanner.h"
+#include "floor/object-scanner.h"
 #include "flavor/flavor-describer.h"
 #include "floor/cave.h"
 #include "game-option/text-display-options.h"
@@ -13,6 +13,9 @@
 #include "system/player-type-definition.h"
 #include "term/gameterm.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
+#include "util/string-processor.h"
+#include <array>
 
 /*!
  * @brief 床に落ちているオブジェクトの数を返す / scan floor items
@@ -103,29 +106,27 @@ COMMAND_CODE show_floor_items(PlayerType *player_ptr, int target_item, POSITION 
     COMMAND_CODE i, m;
     int j, k, l;
     ItemEntity *o_ptr;
-    GAME_TEXT o_name[MAX_NLEN];
-    char tmp_val[80];
-    COMMAND_CODE out_index[23];
-    TERM_COLOR out_color[23];
-    char out_desc[23][MAX_NLEN];
+    char tmp_val[80]{};
+    COMMAND_CODE out_index[23]{};
+    TERM_COLOR out_color[23]{};
+    std::array<std::string, 23> descriptions{};
     COMMAND_CODE target_item_label = 0;
-    OBJECT_IDX floor_list[23];
+    OBJECT_IDX floor_list[23]{};
     ITEM_NUMBER floor_num;
-    TERM_LEN wid, hgt;
-    char floor_label[52 + 1];
-    bool dont_need_to_show_weights = true;
-    term_get_size(&wid, &hgt);
-    int len = std::max((*min_width), 20);
+    char floor_label[52 + 1]{};
+    auto dont_need_to_show_weights = true;
+    const auto &[wid, hgt] = term_get_size();
+    auto len = std::max((*min_width), 20);
     floor_num = scan_floor_items(player_ptr, floor_list, y, x, SCAN_FLOOR_ITEM_TESTER | SCAN_FLOOR_ONLY_MARKED, item_tester);
     auto *floor_ptr = player_ptr->current_floor_ptr;
     for (k = 0, i = 0; i < floor_num && i < 23; i++) {
         o_ptr = &floor_ptr->o_list[floor_list[i]];
-        describe_flavor(player_ptr, o_name, o_ptr, 0);
+        const auto item_name = describe_flavor(player_ptr, o_ptr, 0);
         out_index[k] = i;
         const auto tval = o_ptr->bi_key.tval();
         out_color[k] = tval_to_attr[enum2i(tval) & 0x7F];
-        strcpy(out_desc[k], o_name);
-        l = strlen(out_desc[k]) + 5;
+        descriptions[k] = item_name;
+        l = descriptions[k].length() + 5;
         if (show_weights) {
             l += 9;
         }
@@ -154,20 +155,20 @@ COMMAND_CODE show_floor_items(PlayerType *player_ptr, int target_item, POSITION 
         prt("", j + 1, col ? col - 2 : col);
         if (use_menu && target_item) {
             if (j == (target_item - 1)) {
-                strcpy(tmp_val, _("》", "> "));
+                angband_strcpy(tmp_val, _("》", "> "), sizeof(tmp_val));
                 target_item_label = m;
             } else {
-                strcpy(tmp_val, "   ");
+                angband_strcpy(tmp_val, "   ", sizeof(tmp_val));
             }
         } else {
-            sprintf(tmp_val, "%c)", floor_label[j]);
+            strnfmt(tmp_val, sizeof(tmp_val), "%c)", floor_label[j]);
         }
 
         put_str(tmp_val, j + 1, col);
-        c_put_str(out_color[j], out_desc[j], j + 1, col + 3);
+        c_put_str(out_color[j], descriptions[j], j + 1, col + 3);
         if (show_weights && (o_ptr->bi_key.tval() != ItemKindType::GOLD)) {
             int wgt = o_ptr->weight * o_ptr->number;
-            sprintf(tmp_val, _("%3d.%1d kg", "%3d.%1d lb"), _(lb_to_kg_integer(wgt), wgt / 10), _(lb_to_kg_fraction(wgt), wgt % 10));
+            strnfmt(tmp_val, sizeof(tmp_val), _("%3d.%1d kg", "%3d.%1d lb"), _(lb_to_kg_integer(wgt), wgt / 10), _(lb_to_kg_fraction(wgt), wgt % 10));
             prt(tmp_val, j + 1, wid - 9);
         }
     }

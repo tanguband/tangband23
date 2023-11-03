@@ -1,4 +1,4 @@
-﻿#include "window/main-window-stat-poster.h"
+#include "window/main-window-stat-poster.h"
 #include "io/input-key-requester.h"
 #include "mind/stances-table.h"
 #include "monster/monster-status.h"
@@ -22,6 +22,7 @@
 #include "system/player-type-definition.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "timed-effect/player-blindness.h"
 #include "timed-effect/player-confusion.h"
 #include "timed-effect/player-cut.h"
@@ -55,15 +56,12 @@
  */
 void print_stat(PlayerType *player_ptr, int stat)
 {
-    GAME_TEXT tmp[32];
     if (player_ptr->stat_cur[stat] < player_ptr->stat_max[stat]) {
         put_str(stat_names_reduced[stat], ROW_STAT + stat, 0);
-        cnv_stat(player_ptr->stat_use[stat], tmp);
-        c_put_str(TERM_YELLOW, tmp, ROW_STAT + stat, COL_STAT + 6);
+        c_put_str(TERM_YELLOW, cnv_stat(player_ptr->stat_use[stat]), ROW_STAT + stat, COL_STAT + 6);
     } else {
         put_str(stat_names[stat], ROW_STAT + stat, 0);
-        cnv_stat(player_ptr->stat_use[stat], tmp);
-        c_put_str(TERM_L_GREEN, tmp, ROW_STAT + stat, COL_STAT + 6);
+        c_put_str(TERM_L_GREEN, cnv_stat(player_ptr->stat_use[stat]), ROW_STAT + stat, COL_STAT + 6);
     }
 
     if (player_ptr->stat_max[stat] != player_ptr->stat_max_max[stat]) {
@@ -90,7 +88,7 @@ void print_cut(PlayerType *player_ptr)
     }
 
     auto [color, stat] = player_cut->get_expr();
-    c_put_str(color, stat.data(), ROW_CUT, COL_CUT);
+    c_put_str(color, stat, ROW_CUT, COL_CUT);
 }
 
 /*!
@@ -106,7 +104,7 @@ void print_stun(PlayerType *player_ptr)
     }
 
     auto [color, stat] = player_stun->get_expr();
-    c_put_str(color, stat.data(), ROW_STUN, COL_STUN);
+    c_put_str(color, stat, ROW_STUN, COL_STUN);
 }
 
 /*!
@@ -158,37 +156,38 @@ void print_hunger(PlayerType *player_ptr)
 void print_state(PlayerType *player_ptr)
 {
     TERM_COLOR attr = TERM_WHITE;
-    GAME_TEXT text[16];
+    std::string text;
     if (command_rep) {
         if (command_rep > 999) {
-            (void)sprintf(text, "%2d00", command_rep / 100);
+            text = format("%2d00", command_rep / 100);
         } else {
-            (void)sprintf(text, "  %2d", command_rep);
+            text = format("  %2d", command_rep);
         }
 
-        c_put_str(attr, format("%5.5s", text), ROW_STATE, COL_STATE);
+        c_put_str(attr, format("%5.5s", text.data()), ROW_STATE, COL_STATE);
         return;
     }
 
     switch (player_ptr->action) {
     case ACTION_SEARCH: {
-        strcpy(text, _("探索", "Sear"));
+        text = _("探索", "Sear");
         break;
     }
     case ACTION_REST:
-        strcpy(text, _("    ", "    "));
         if (player_ptr->resting > 0) {
-            sprintf(text, "%4d", player_ptr->resting);
+            text = format("%4d", player_ptr->resting);
         } else if (player_ptr->resting == COMMAND_ARG_REST_FULL_HEALING) {
-            text[0] = text[1] = text[2] = text[3] = '*';
+            text = "****";
         } else if (player_ptr->resting == COMMAND_ARG_REST_UNTIL_DONE) {
-            text[0] = text[1] = text[2] = text[3] = '&';
+            text = "&&&&";
+        } else {
+            text = "    ";
         }
 
         break;
 
     case ACTION_LEARN: {
-        strcpy(text, _("学習", "lear"));
+        text = _("学習", "lear");
         auto bluemage_data = PlayerClass(player_ptr).get_specific_data<bluemage_data_type>();
         if (bluemage_data->new_magic_learned) {
             attr = TERM_L_RED;
@@ -196,7 +195,7 @@ void print_state(PlayerType *player_ptr)
         break;
     }
     case ACTION_FISH: {
-        strcpy(text, _("釣り", "fish"));
+        text = _("釣り", "fish");
         break;
     }
     case ACTION_MONK_STANCE: {
@@ -218,36 +217,36 @@ void print_state(PlayerType *player_ptr)
             default:
                 break;
             }
-            strcpy(text, monk_stances[enum2i(stance) - 1].desc);
+            text = monk_stances[enum2i(stance) - 1].desc;
         }
         break;
     }
     case ACTION_SAMURAI_STANCE: {
         if (auto stance = PlayerClass(player_ptr).get_samurai_stance();
             stance != SamuraiStanceType::NONE) {
-            strcpy(text, samurai_stances[enum2i(stance) - 1].desc);
+            text = samurai_stances[enum2i(stance) - 1].desc;
         }
         break;
     }
     case ACTION_SING: {
-        strcpy(text, _("歌  ", "Sing"));
+        text = _("歌  ", "Sing");
         break;
     }
     case ACTION_HAYAGAKE: {
-        strcpy(text, _("速駆", "Fast"));
+        text = _("速駆", "Fast");
         break;
     }
     case ACTION_SPELL: {
-        strcpy(text, _("詠唱", "Spel"));
+        text = _("詠唱", "Spel");
         break;
     }
     default: {
-        strcpy(text, "    ");
+        text = "    ";
         break;
     }
     }
 
-    c_put_str(attr, format("%5.5s", text), ROW_STATE, COL_STATE);
+    c_put_str(attr, format("%5.5s", text.data()), ROW_STATE, COL_STATE);
 }
 
 /*!
@@ -256,15 +255,14 @@ void print_state(PlayerType *player_ptr)
  */
 void print_speed(PlayerType *player_ptr)
 {
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
-    TERM_LEN col_speed = wid + COL_SPEED;
-    TERM_LEN row_speed = hgt + ROW_SPEED;
+    const auto &[wid, hgt] = term_get_size();
+    auto col_speed = wid + COL_SPEED;
+    auto row_speed = hgt + ROW_SPEED;
 
     const auto speed = player_ptr->pspeed - STANDARD_SPEED;
     auto *floor_ptr = player_ptr->current_floor_ptr;
     bool is_player_fast = is_fast(player_ptr);
-    char buf[32] = "";
+    std::string buf;
     TERM_COLOR attr = TERM_WHITE;
     if (speed > 0) {
         auto is_slow = player_ptr->effects()->deceleration()->is_slow();
@@ -284,7 +282,7 @@ void print_speed(PlayerType *player_ptr)
         } else {
             attr = TERM_L_GREEN;
         }
-        sprintf(buf, "%s(+%d)", (player_ptr->riding ? _("乗馬", "Ride") : _("加速", "Fast")), speed);
+        buf = format("%s(+%d)", (player_ptr->riding ? _("乗馬", "Ride") : _("加速", "Fast")), speed);
     } else if (speed < 0) {
         auto is_slow = player_ptr->effects()->deceleration()->is_slow();
         if (player_ptr->riding) {
@@ -303,13 +301,13 @@ void print_speed(PlayerType *player_ptr)
         } else {
             attr = TERM_L_UMBER;
         }
-        sprintf(buf, "%s(%d)", (player_ptr->riding ? _("乗馬", "Ride") : _("減速", "Slow")), speed);
+        buf = format("%s(%d)", (player_ptr->riding ? _("乗馬", "Ride") : _("減速", "Slow")), speed);
     } else if (player_ptr->riding) {
         attr = TERM_GREEN;
-        strcpy(buf, _("乗馬中", "Riding"));
+        buf = _("乗馬中", "Riding");
     }
 
-    c_put_str(attr, format("%-9s", buf), row_speed, col_speed);
+    c_put_str(attr, format("%-9s", buf.data()), row_speed, col_speed);
 }
 
 /*!
@@ -318,11 +316,9 @@ void print_speed(PlayerType *player_ptr)
  */
 void print_study(PlayerType *player_ptr)
 {
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
-    TERM_LEN col_study = wid + COL_STUDY;
-    TERM_LEN row_study = hgt + ROW_STUDY;
-
+    const auto &[wid, hgt] = term_get_size();
+    const auto col_study = wid + COL_STUDY;
+    const auto row_study = hgt + ROW_STUDY;
     if (player_ptr->new_spells) {
         put_str(_("学習", "Stud"), row_study, col_study);
     } else {
@@ -336,11 +332,9 @@ void print_study(PlayerType *player_ptr)
  */
 void print_imitation(PlayerType *player_ptr)
 {
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
-    TERM_LEN col_study = wid + COL_STUDY;
-    TERM_LEN row_study = hgt + ROW_STUDY;
-
+    const auto &[wid, hgt] = term_get_size();
+    const auto col_study = wid + COL_STUDY;
+    const auto row_study = hgt + ROW_STUDY;
     PlayerClass pc(player_ptr);
     if (!pc.equals(PlayerClassType::IMITATOR)) {
         return;
@@ -451,16 +445,11 @@ static void add_hex_status_flags(PlayerType *player_ptr, BIT_FLAGS *bar_flags)
  */
 void print_status(PlayerType *player_ptr)
 {
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
-    TERM_LEN row_statbar = hgt + ROW_STATBAR;
-    TERM_LEN max_col_statbar = wid + MAX_COL_STATBAR;
-
+    const auto &[wid, hgt] = term_get_size();
+    const auto row_statbar = hgt + ROW_STATBAR;
+    const auto max_col_statbar = wid + MAX_COL_STATBAR;
     term_erase(0, row_statbar, max_col_statbar);
-
-    BIT_FLAGS bar_flags[3];
-    bar_flags[0] = bar_flags[1] = bar_flags[2] = 0L;
-
+    BIT_FLAGS bar_flags[3]{};
     auto effects = player_ptr->effects();
     if (player_ptr->tsuyoshi) {
         ADD_BAR_FLAG(BAR_TSUYOSHI);
@@ -490,7 +479,7 @@ void print_status(PlayerType *player_ptr)
         ADD_BAR_FLAG(BAR_SENSEUNSEEN);
     }
 
-    auto sniper_data = PlayerClass(player_ptr).get_specific_data<sniper_data_type>();
+    auto sniper_data = PlayerClass(player_ptr).get_specific_data<SniperData>();
     if (sniper_data && (sniper_data->concent >= CONCENT_RADAR_THRESHOLD)) {
         ADD_BAR_FLAG(BAR_SENSEUNSEEN);
         ADD_BAR_FLAG(BAR_NIGHTSIGHT);

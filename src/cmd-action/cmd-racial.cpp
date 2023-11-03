@@ -1,4 +1,4 @@
-﻿/*
+/*
  * @brief クラス、種族、突然変異に関するコマンド処理
  * @author Hourier
  * @date 2022/02/24
@@ -9,8 +9,6 @@
 #include "action/mutation-execution.h"
 #include "action/racial-execution.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/window-redrawer.h"
 #include "game-option/text-display-options.h"
 #include "io/command-repeater.h"
@@ -30,18 +28,18 @@
 #include "racial/race-racial-command-setter.h"
 #include "racial/racial-util.h"
 #include "status/action-setter.h"
+#include "system/angband-exceptions.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "util/bit-flags-calculator.h"
-#include "util/buffer-shaper.h"
 #include "util/int-char-converter.h"
 #include "view/display-messages.h"
+#include "view/display-util.h"
 #include <string>
 
-#define RC_PAGE_SIZE 18
-
-#define RC_CANCEL true
-#define RC_CONTINUE false
+constexpr auto RC_PAGE_SIZE = 18;
 
 static void racial_power_display_cursor(rc_type *rc_ptr)
 {
@@ -59,16 +57,11 @@ static void racial_power_erase_cursor(rc_type *rc_ptr)
  * @brief レイシャルパワー一覧を表示
  * @param player_ptr プレイヤー情報への参照ポインタ
  * @param rc_ptr レイシャルパワー情報への参照ポインタ
- * @return キャンセルしたらRC_CANCEL、それ以外ならRC_CONTINUE
  */
 static void racial_power_display_list(PlayerType *player_ptr, rc_type *rc_ptr)
 {
     TERM_LEN x = 11;
-    char dummy[256];
-    strcpy(dummy, "");
-
     prt(_("                                   Lv   MP 失率 効果", "                                   Lv   MP Fail Effect"), 1, x);
-
     auto y = 0;
     for (; y < RC_PAGE_SIZE; y++) {
         auto ctr = RC_PAGE_SIZE * rc_ptr->page + y;
@@ -76,8 +69,9 @@ static void racial_power_display_list(PlayerType *player_ptr, rc_type *rc_ptr)
             break;
         }
 
+        std::string dummy;
         if (use_menu) {
-            strcpy(dummy, "    ");
+            dummy = "    ";
         } else {
             char letter;
             if (ctr < 26) {
@@ -86,19 +80,19 @@ static void racial_power_display_list(PlayerType *player_ptr, rc_type *rc_ptr)
                 letter = '0' + ctr - 26;
             }
 
-            sprintf(dummy, " %c) ", letter);
+            dummy = format(" %c) ", letter);
         }
 
         auto &rpi = rc_ptr->power_desc[ctr];
-        strcat(dummy,
+        dummy.append(
             format("%-30.30s %2d %4d %3d%% %s", rpi.racial_name.data(), rpi.min_level, rpi.cost, 100 - racial_chance(player_ptr, &rc_ptr->power_desc[ctr]),
-                rpi.info.data()));
+                rpi.info.data())
+                .data());
 
         prt(dummy, 2 + y, x);
     }
 
     prt("", 2 + y, x);
-
     if (use_menu) {
         racial_power_display_cursor(rc_ptr);
     }
@@ -136,9 +130,11 @@ static void racial_power_add_index(PlayerType *player_ptr, rc_type *rc_ptr, int 
             return;
         }
     }
+
     if (n < 0) {
         n = rc_ptr->power_count() - 1;
     }
+
     if (n >= rc_ptr->power_count()) {
         n = 0;
     }
@@ -159,46 +155,46 @@ static void racial_power_add_index(PlayerType *player_ptr, rc_type *rc_ptr, int 
 /*!
  * @brief メニューによる選択のキーを処理する
  * @param rc_ptr レイシャルパワー情報への参照ポインタ
- * @return キャンセルならRC_CANCEL、そうでないならRC_CONTINUE
+ * @return キャンセルならfalse、それ以外ならtrue
  */
 static bool racial_power_interpret_menu_keys(PlayerType *player_ptr, rc_type *rc_ptr)
 {
     switch (rc_ptr->choice) {
     case '0':
-        return RC_CANCEL;
+        return false;
     case '8':
     case 'k':
     case 'K':
         racial_power_add_index(player_ptr, rc_ptr, -1);
-        return RC_CONTINUE;
+        return true;
     case '2':
     case 'j':
     case 'J':
         racial_power_add_index(player_ptr, rc_ptr, 1);
-        return RC_CONTINUE;
+        return true;
     case '6':
     case 'l':
     case 'L':
         racial_power_add_index(player_ptr, rc_ptr, RC_PAGE_SIZE);
-        return RC_CONTINUE;
+        return true;
     case '4':
     case 'h':
     case 'H':
         racial_power_add_index(player_ptr, rc_ptr, 0 - RC_PAGE_SIZE);
-        return RC_CONTINUE;
+        return true;
     case 'x':
     case 'X':
     case '\r':
         rc_ptr->command_code = (COMMAND_CODE)rc_ptr->menu_line;
         rc_ptr->is_chosen = true;
         rc_ptr->ask = false;
-        return RC_CONTINUE;
+        return true;
     case '/':
         rc_ptr->browse_mode = !rc_ptr->browse_mode;
         racial_power_make_prompt(rc_ptr);
-        return RC_CONTINUE;
+        return true;
     default:
-        return RC_CONTINUE;
+        return true;
     }
 }
 
@@ -206,23 +202,23 @@ static bool racial_power_interpret_menu_keys(PlayerType *player_ptr, rc_type *rc
  * @brief メニューからの選択決定を処理
  * @param player_ptr プレイヤー情報への参照ポインタ
  * @param rc_ptr レイシャルパワー情報への参照ポインタ
- * @return キャンセルしたらRC_CANCEL、それ以外ならRC_CONTINUE
+ * @return キャンセルしたらfalse、それ以外ならtrue
  */
 static bool racial_power_select_by_menu(PlayerType *player_ptr, rc_type *rc_ptr)
 {
     if (!use_menu || rc_ptr->choice == ' ') {
-        return RC_CONTINUE;
+        return true;
     }
 
-    if (racial_power_interpret_menu_keys(player_ptr, rc_ptr)) {
-        return RC_CANCEL;
+    if (!racial_power_interpret_menu_keys(player_ptr, rc_ptr)) {
+        return false;
     }
 
     if (rc_ptr->menu_line > rc_ptr->power_count()) {
         rc_ptr->menu_line -= rc_ptr->power_count();
     }
 
-    return RC_CONTINUE;
+    return true;
 }
 
 /*!
@@ -242,6 +238,7 @@ static bool racial_power_interpret_choise(PlayerType *player_ptr, rc_type *rc_pt
         if (rc_ptr->page > rc_ptr->max_page) {
             rc_ptr->page = 0;
         }
+
         screen_load();
         screen_save();
         racial_power_display_list(player_ptr, rc_ptr);
@@ -298,25 +295,20 @@ static bool ask_invoke_racial_power(rc_type *rc_ptr)
 
     char tmp_val[160];
     (void)strnfmt(tmp_val, 78, _("%sを使いますか？ ", "Use %s? "), rc_ptr->power_desc[rc_ptr->command_code].racial_name.data());
-    return get_check(tmp_val);
+    return input_check(tmp_val);
 }
 
 static void racial_power_display_explanation(PlayerType *player_ptr, rc_type *rc_ptr)
 {
     auto &rpi = rc_ptr->power_desc[rc_ptr->command_code];
-    char temp[62 * 5];
 
-    term_erase(12, 21, 255);
-    term_erase(12, 20, 255);
-    term_erase(12, 19, 255);
-    term_erase(12, 18, 255);
-    term_erase(12, 17, 255);
-    term_erase(12, 16, 255);
-    shape_buffer(rpi.text.data(), 62, temp, sizeof(temp));
-    for (int j = 0, line = 17; temp[j]; j += (1 + strlen(&temp[j]))) {
-        prt(&temp[j], line, 15);
-        line++;
-    }
+    term_erase(12, 21);
+    term_erase(12, 20);
+    term_erase(12, 19);
+    term_erase(12, 18);
+    term_erase(12, 17);
+    term_erase(12, 16);
+    display_wrap_around(rpi.text, 62, 17, 15);
 
     prt(_("何かキーを押して下さい。", "Hit any key."), 0, 0);
     (void)inkey();
@@ -331,7 +323,7 @@ static void racial_power_display_explanation(PlayerType *player_ptr, rc_type *rc
  * @brief レイシャルパワー選択処理のメインループ
  * @param player_ptr プレイヤー情報への参照ポインタ
  * @param rc_ptr レイシャルパワー情報への参照ポインタ
- * @return コマンド選択したらRC_CONTINUE、キャンセルしたらRC_CANCEL
+ * @return コマンド選択したらtrue、キャンセルしたらfalse
  */
 static bool racial_power_process_input(PlayerType *player_ptr, rc_type *rc_ptr)
 {
@@ -340,12 +332,17 @@ static bool racial_power_process_input(PlayerType *player_ptr, rc_type *rc_ptr)
     while (true) {
         if (rc_ptr->choice == ESCAPE) {
             rc_ptr->choice = ' ';
-        } else if (!get_com(rc_ptr->out_val, &rc_ptr->choice, false)) {
-            return RC_CANCEL;
+        } else {
+            const auto choice = input_command(rc_ptr->out_val);
+            if (!choice.has_value()) {
+                return false;
+            }
+
+            rc_ptr->choice = choice.value();
         }
 
-        if (racial_power_select_by_menu(player_ptr, rc_ptr) == RC_CANCEL) {
-            return RC_CANCEL;
+        if (!racial_power_select_by_menu(player_ptr, rc_ptr)) {
+            return false;
         }
 
         if (!rc_ptr->is_chosen && racial_power_interpret_choise(player_ptr, rc_ptr)) {
@@ -364,64 +361,58 @@ static bool racial_power_process_input(PlayerType *player_ptr, rc_type *rc_ptr)
         }
     }
 
-    return RC_CONTINUE;
+    return true;
 }
 
 /*!
  * @brief レイシャル/クラスパワー選択を処理
  * @param player_ptr プレイヤー情報への参照ポインタ
  * @param rc_ptr レイシャルパワー情報への参照ポインタ
- * @return コマンド選択したらRC_CONTINUE、キャンセルしたらRC_CANCEL
+ * @return コマンド選択したらtrue、キャンセルしたらfalse
  */
 static bool racial_power_select_power(PlayerType *player_ptr, rc_type *rc_ptr)
 {
     if (repeat_pull(&rc_ptr->command_code) && rc_ptr->command_code >= 0 && rc_ptr->command_code < rc_ptr->power_count()) {
-        return RC_CONTINUE;
+        return true;
     }
 
     screen_save();
-
     if (use_menu) {
         racial_power_display_list(player_ptr, rc_ptr);
     }
 
-    auto canceled = racial_power_process_input(player_ptr, rc_ptr) == RC_CANCEL;
-
+    const auto is_selected = racial_power_process_input(player_ptr, rc_ptr);
     screen_load();
-
-    if (canceled) {
-        return RC_CANCEL;
+    if (!is_selected) {
+        return false;
     }
 
     repeat_push(rc_ptr->command_code);
-    return RC_CONTINUE;
+    return true;
 }
 
 /*!
  * @brief レイシャルパワーの使用を試みる
  * @param player_ptr プレイヤー情報への参照ポインタ
  * @param rc_ptr レイシャルパワー情報への参照ポインタ
- * @details
- * 戻り値の代わりにrc_ptr->castに使用の有無を入れる。
+ * @return レイシャルパワーの使用有無
  */
-static void racial_power_cast_power(PlayerType *player_ptr, rc_type *rc_ptr)
+static bool racial_power_cast_power(PlayerType *player_ptr, rc_type *rc_ptr)
 {
     auto *rpi_ptr = &rc_ptr->power_desc[rc_ptr->command_code];
-
     switch (check_racial_level(player_ptr, rpi_ptr)) {
     case RACIAL_SUCCESS:
         if (rpi_ptr->number < 0) {
-            rc_ptr->cast = exe_racial_power(player_ptr, rpi_ptr->number);
-        } else {
-            rc_ptr->cast = exe_mutation_power(player_ptr, i2enum<PlayerMutationType>(rpi_ptr->number));
+            return exe_racial_power(player_ptr, rpi_ptr->number);
         }
-        break;
+
+        return exe_mutation_power(player_ptr, i2enum<PlayerMutationType>(rpi_ptr->number));
     case RACIAL_FAILURE:
-        rc_ptr->cast = true;
-        break;
+        return true;
     case RACIAL_CANCEL:
-        rc_ptr->cast = false;
-        break;
+        return false;
+    default:
+        THROW_EXCEPTION(std::logic_error, "Invalid racial level check!");
     }
 }
 
@@ -442,7 +433,6 @@ static bool racial_power_reduce_mana(PlayerType *player_ptr, rc_type *rc_ptr)
     }
 
     int actual_racial_cost = racial_cost / 2 + randint1(racial_cost / 2);
-
     if (player_ptr->csp >= actual_racial_cost) {
         player_ptr->csp -= actual_racial_cost;
     } else {
@@ -455,7 +445,7 @@ static bool racial_power_reduce_mana(PlayerType *player_ptr, rc_type *rc_ptr)
 }
 
 /*!
- * @brief レイシャル・パワーコマンドのメインルーチン / Allow user to choose a power (racial / mutation) to activate
+ * @brief レイシャル・パワーコマンドのメインルーチン
  * @param player_ptr プレイヤーへの参照ポインタ
  */
 void do_cmd_racial_power(PlayerType *player_ptr)
@@ -471,12 +461,9 @@ void do_cmd_racial_power(PlayerType *player_ptr)
     }
 
     PlayerClass(player_ptr).break_samurai_stance({ SamuraiStanceType::MUSOU, SamuraiStanceType::KOUKIJIN });
-
     auto tmp_r = rc_type(player_ptr);
     auto *rc_ptr = &tmp_r;
-
     switch_class_racial(player_ptr, rc_ptr);
-
     if (player_ptr->mimic_form != MimicKindType::NONE) {
         set_mimic_racial_command(player_ptr, rc_ptr);
     } else {
@@ -484,7 +471,6 @@ void do_cmd_racial_power(PlayerType *player_ptr)
     }
 
     select_mutation_racial(player_ptr, rc_ptr);
-
     if (rc_ptr->power_count() == 0) {
         msg_print(_("特殊能力はありません。", "You have no special powers."));
         return;
@@ -493,12 +479,12 @@ void do_cmd_racial_power(PlayerType *player_ptr)
     rc_ptr->max_page = 1 + (rc_ptr->power_count() - 1) / RC_PAGE_SIZE;
     rc_ptr->page = use_menu ? 0 : -1;
     racial_power_make_prompt(rc_ptr);
-
-    if (racial_power_select_power(player_ptr, rc_ptr) == RC_CONTINUE) {
-        racial_power_cast_power(player_ptr, rc_ptr);
+    auto should_cast = false;
+    if (racial_power_select_power(player_ptr, rc_ptr)) {
+        should_cast = racial_power_cast_power(player_ptr, rc_ptr);
     }
 
-    if (!rc_ptr->cast) {
+    if (!should_cast) {
         energy.reset_player_turn();
         return;
     }
@@ -507,6 +493,15 @@ void do_cmd_racial_power(PlayerType *player_ptr)
         return;
     }
 
-    set_bits(player_ptr->redraw, PR_HP | PR_MANA);
-    set_bits(player_ptr->window_flags, PW_PLAYER | PW_SPELL);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    const auto &flags_mwrf = {
+        MainWindowRedrawingFlag::HP,
+        MainWindowRedrawingFlag::MP,
+    };
+    rfu.set_flags(flags_mwrf);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::PLAYER,
+        SubWindowRedrawingFlag::SPELL,
+    };
+    rfu.set_flags(flags_swrf);
 }

@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 自動拾いにアイテムを登録する
  * @date 2020/04/26
  * @author Hourier
@@ -28,23 +28,17 @@ static const char autoregister_header[] = "?:$AUTOREGISTER";
  */
 static bool clear_auto_register(PlayerType *player_ptr)
 {
-    char pref_file[1024];
-    path_build(pref_file, sizeof(pref_file), ANGBAND_DIR_USER, pickpref_filename(player_ptr, PT_WITH_PNAME));
-    FILE *pref_fff;
-    pref_fff = angband_fopen(pref_file, "r");
-
-    if (!pref_fff) {
-        path_build(pref_file, sizeof(pref_file), ANGBAND_DIR_USER, pickpref_filename(player_ptr, PT_DEFAULT));
-        pref_fff = angband_fopen(pref_file, "r");
+    const auto path_pref = search_pickpref_path(player_ptr);
+    if (path_pref.empty()) {
+        return true;
     }
-
+    auto *pref_fff = angband_fopen(path_pref, FileOpenMode::READ);
     if (!pref_fff) {
         return true;
     }
 
     char tmp_file[1024];
-    FILE *tmp_fff;
-    tmp_fff = angband_fopen_temp(tmp_file, sizeof(tmp_file));
+    auto *tmp_fff = angband_fopen_temp(tmp_file, sizeof(tmp_file));
     if (!tmp_fff) {
         fclose(pref_fff);
         msg_format(_("一時ファイル %s を作成できませんでした。", "Failed to create temporary file %s."), tmp_file);
@@ -52,10 +46,10 @@ static bool clear_auto_register(PlayerType *player_ptr)
         return false;
     }
 
-    bool autoregister = false;
-    int num = 0;
-    char buf[1024];
+    auto autoregister = false;
+    auto num = 0;
     while (true) {
+        char buf[1024]{};
         if (angband_fgets(pref_fff, buf, sizeof(buf))) {
             break;
         }
@@ -80,9 +74,9 @@ static bool clear_auto_register(PlayerType *player_ptr)
     bool okay = true;
     if (num) {
         msg_format(_("以前のキャラクター用の自動設定(%d行)が残っています。", "Auto registered lines (%d lines) for previous character are remaining."), num);
-        strcpy(buf, _("古い設定行は削除します。よろしいですか？", "These lines will be deleted.  Are you sure? "));
+        constexpr auto mes = _("古い設定行は削除します。よろしいですか？", "These lines will be deleted.  Are you sure? ");
 
-        if (!get_check(buf)) {
+        if (!input_check(mes)) {
             okay = false;
             autoregister = false;
 
@@ -91,9 +85,9 @@ static bool clear_auto_register(PlayerType *player_ptr)
     }
 
     if (autoregister) {
-        tmp_fff = angband_fopen(tmp_file, "r");
-        pref_fff = angband_fopen(pref_file, "w");
-
+        tmp_fff = angband_fopen(tmp_file, FileOpenMode::READ);
+        pref_fff = angband_fopen(path_pref, FileOpenMode::WRITE);
+        char buf[1024]{};
         while (!angband_fgets(tmp_fff, buf, sizeof(buf))) {
             fprintf(pref_fff, "%s\n", buf);
         }
@@ -130,10 +124,9 @@ bool autopick_autoregister(PlayerType *player_ptr, ItemEntity *o_ptr)
         return false;
     }
 
-    if ((o_ptr->is_known() && o_ptr->is_artifact()) || ((o_ptr->ident & IDENT_SENSE) && (o_ptr->feeling == FEEL_TERRIBLE || o_ptr->feeling == FEEL_SPECIAL))) {
-        GAME_TEXT o_name[MAX_NLEN];
-        describe_flavor(player_ptr, o_name, o_ptr, 0);
-        msg_format(_("%sは破壊不能だ。", "You cannot auto-destroy %s."), o_name);
+    if ((o_ptr->is_known() && o_ptr->is_fixed_or_random_artifact()) || ((o_ptr->ident & IDENT_SENSE) && (o_ptr->feeling == FEEL_TERRIBLE || o_ptr->feeling == FEEL_SPECIAL))) {
+        const auto item_name = describe_flavor(player_ptr, o_ptr, 0);
+        msg_format(_("%sは破壊不能だ。", "You cannot auto-destroy %s."), item_name.data());
         return false;
     }
 
@@ -143,19 +136,12 @@ bool autopick_autoregister(PlayerType *player_ptr, ItemEntity *o_ptr)
         }
     }
 
-    char buf[1024];
-    char pref_file[1024];
-    FILE *pref_fff;
-    path_build(pref_file, sizeof(pref_file), ANGBAND_DIR_USER, pickpref_filename(player_ptr, PT_WITH_PNAME));
-    pref_fff = angband_fopen(pref_file, "r");
-
-    if (!pref_fff) {
-        path_build(pref_file, sizeof(pref_file), ANGBAND_DIR_USER, pickpref_filename(player_ptr, PT_DEFAULT));
-        pref_fff = angband_fopen(pref_file, "r");
-    }
+    const auto path_pref = search_pickpref_path(player_ptr);
+    auto *pref_fff = !path_pref.empty() ? angband_fopen(path_pref, FileOpenMode::READ) : nullptr;
 
     if (pref_fff) {
         while (true) {
+            char buf[1024]{};
             if (angband_fgets(pref_fff, buf, sizeof(buf))) {
                 player_ptr->autopick_autoregister = false;
                 break;
@@ -176,9 +162,10 @@ bool autopick_autoregister(PlayerType *player_ptr, ItemEntity *o_ptr)
         player_ptr->autopick_autoregister = false;
     }
 
-    pref_fff = angband_fopen(pref_file, "a");
+    pref_fff = angband_fopen(path_pref, FileOpenMode::APPEND);
     if (!pref_fff) {
-        msg_format(_("%s を開くことができませんでした。", "Failed to open %s."), pref_file);
+        const auto filename_pref = path_pref.string();
+        msg_format(_("%s を開くことができませんでした。", "Failed to open %s."), filename_pref.data());
         msg_print(nullptr);
         return false;
     }
@@ -197,7 +184,7 @@ bool autopick_autoregister(PlayerType *player_ptr, ItemEntity *o_ptr)
     entry->action = DO_AUTODESTROY;
     autopick_list.push_back(*entry);
 
-    concptr tmp = autopick_line_from_entry(entry);
+    concptr tmp = autopick_line_from_entry(*entry);
     fprintf(pref_fff, "%s\n", tmp);
     string_free(tmp);
     fclose(pref_fff);

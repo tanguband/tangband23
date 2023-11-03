@@ -1,4 +1,4 @@
-﻿#include "mind/mind-power-getter.h"
+#include "mind/mind-power-getter.h"
 #include "core/asking-player.h"
 #include "core/stuff-handler.h"
 #include "core/window-redrawer.h"
@@ -15,7 +15,9 @@
 #include "player-info/equipment-info.h"
 #include "player/player-status-table.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "timed-effect/player-stun.h"
 #include "timed-effect/timed-effects.h"
 #include "util/enum-converter.h"
@@ -23,6 +25,7 @@
 
 MindPowerGetter::MindPowerGetter(PlayerType *player_ptr)
     : player_ptr(player_ptr)
+    , use_mind(MindKindType::MINDCRAFTER)
     , menu_line(use_menu ? 1 : 0)
 {
 }
@@ -58,13 +61,13 @@ bool MindPowerGetter::get_mind_power(SPELL_IDX *sn, bool only_browse)
         }
     }
 
-    char out_val[160];
+    std::string prompt;
     if (only_browse) {
-        (void)strnfmt(out_val, 78, _("(%^s %c-%c, '*'で一覧, ESC) どの%sについて知りますか？", "(%^ss %c-%c, *=List, ESC=exit) Use which %s? "),
-            this->mind_description, I2A(0), I2A(this->num - 1), this->mind_description);
+        constexpr auto fmt = _("(%s^ %c-%c, '*'で一覧, ESC) どの%sについて知りますか？", "(%s^s %c-%c, *=List, ESC=exit) Use which %s? ");
+        prompt = format(fmt, this->mind_description, I2A(0), I2A(this->num - 1), this->mind_description);
     } else {
-        (void)strnfmt(out_val, 78, _("(%^s %c-%c, '*'で一覧, ESC) どの%sを使いますか？", "(%^ss %c-%c, *=List, ESC=exit) Use which %s? "),
-            this->mind_description, I2A(0), I2A(this->num - 1), this->mind_description);
+        constexpr auto fmt = _("(%s^ %c-%c, '*'で一覧, ESC) どの%sを使いますか？", "(%s^s %c-%c, *=List, ESC=exit) Use which %s? ");
+        prompt = format(fmt, this->mind_description, I2A(0), I2A(this->num - 1), this->mind_description);
     }
 
     if (use_menu && !only_browse) {
@@ -72,12 +75,12 @@ bool MindPowerGetter::get_mind_power(SPELL_IDX *sn, bool only_browse)
     }
 
     this->choice = (always_show_list || use_menu) ? ESCAPE : 1;
-    decide_mind_choice(out_val, only_browse);
+    this->decide_mind_choice(prompt, only_browse);
     if (this->redraw && !only_browse) {
         screen_load();
     }
 
-    this->player_ptr->window_flags |= PW_SPELL;
+    RedrawingFlagsUpdater::get_instance().set_flag(SubWindowRedrawingFlag::SPELL);
     handle_stuff(this->player_ptr);
     if (!this->flag) {
         return false;
@@ -139,13 +142,18 @@ bool MindPowerGetter::select_spell_index(SPELL_IDX *sn)
     return mind_ptr->info[*sn].min_lev <= this->player_ptr->lev;
 }
 
-bool MindPowerGetter::decide_mind_choice(char *out_val, const bool only_browse)
+bool MindPowerGetter::decide_mind_choice(std::string_view prompt, const bool only_browse)
 {
     while (!this->flag) {
         if (this->choice == ESCAPE) {
             this->choice = ' ';
-        } else if (!get_com(out_val, &this->choice, true)) {
-            break;
+        } else {
+            const auto command = input_command(prompt, true);
+            if (!command.has_value()) {
+                break;
+            }
+
+            this->choice = command.value();
         }
 
         if (!interpret_mind_key_input(only_browse)) {
@@ -254,22 +262,20 @@ void MindPowerGetter::display_each_mind_chance()
         }
 
         calculate_mind_chance(has_weapon);
-        char comment[80];
-        mindcraft_info(this->player_ptr, comment, this->use_mind, this->index);
-        char psi_desc[80];
+        const auto comment = mindcraft_info(this->player_ptr, this->use_mind, this->index);
+        std::string psi_desc;
         if (use_menu) {
             if (this->index == (this->menu_line - 1)) {
-                strcpy(psi_desc, _("  》 ", "  >  "));
+                psi_desc = _("  》 ", "  >  ");
             } else {
-                strcpy(psi_desc, "     ");
+                psi_desc = "     ";
             }
         } else {
-            sprintf(psi_desc, "  %c) ", I2A(this->index));
+            psi_desc = format("  %c) ", I2A(this->index));
         }
 
-        strcat(psi_desc,
-            format("%-30s%2d %4d%s %3d%%%s", this->spell->name, this->spell->min_lev, mana_cost,
-                (((this->use_mind == MindKindType::MINDCRAFTER) && (this->index == 13)) ? _("～", "~ ") : "  "), chance, comment));
+        psi_desc.append(format("%-30s%2d %4d%s %3d%%%s", this->spell->name, this->spell->min_lev, mana_cost,
+            (((this->use_mind == MindKindType::MINDCRAFTER) && (this->index == 13)) ? _("～", "~ ") : "  "), chance, comment.data()));
         prt(psi_desc, y + this->index + 1, x);
     }
 }

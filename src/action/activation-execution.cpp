@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file activation-execution.cpp
  * @brief アイテムの発動実行定義
  */
@@ -43,11 +43,11 @@
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/target-getter.h"
 #include "term/screen-processor.h"
 #include "timed-effect/player-confusion.h"
 #include "timed-effect/timed-effects.h"
-#include "util/quarks.h"
 #include "util/sort.h"
 #include "view/display-messages.h"
 #include "world/world.h"
@@ -55,7 +55,7 @@
 static void decide_activation_level(ae_type *ae_ptr)
 {
     if (ae_ptr->o_ptr->is_fixed_artifact()) {
-        ae_ptr->lev = artifacts_info.at(ae_ptr->o_ptr->fixed_artifact_idx).level;
+        ae_ptr->lev = ae_ptr->o_ptr->get_fixed_artifact().level;
         return;
     }
 
@@ -70,7 +70,7 @@ static void decide_activation_level(ae_type *ae_ptr)
 
     const auto tval = ae_ptr->o_ptr->bi_key.tval();
     if (((tval == ItemKindType::RING) || (tval == ItemKindType::AMULET)) && ae_ptr->o_ptr->is_ego()) {
-        ae_ptr->lev = egos_info[ae_ptr->o_ptr->ego_idx].level;
+        ae_ptr->lev = ae_ptr->o_ptr->get_ego().level;
     }
 }
 
@@ -162,9 +162,8 @@ static bool activate_artifact(PlayerType *player_ptr, ItemEntity *o_ptr)
     }
 
     auto *act_ptr = tmp_act_ptr.value();
-    GAME_TEXT name[MAX_NLEN];
-    describe_flavor(player_ptr, name, o_ptr, OD_NAME_ONLY | OD_OMIT_PREFIX | OD_BASE_NAME);
-    if (!switch_activation(player_ptr, &o_ptr, act_ptr, name)) {
+    const auto item_name = describe_flavor(player_ptr, o_ptr, OD_NAME_ONLY | OD_OMIT_PREFIX | OD_BASE_NAME);
+    if (!switch_activation(player_ptr, &o_ptr, act_ptr, item_name.data())) {
         return false;
     }
 
@@ -190,7 +189,7 @@ static bool activate_artifact(PlayerType *player_ptr, ItemEntity *o_ptr)
     case RandomArtActType::MURAMASA:
         return true;
     default:
-        msg_format("Special timeout is not implemented: %d.", act_ptr->index);
+        msg_format("Special timeout is not implemented: %d.", enum2i(act_ptr->index));
         return false;
     }
 }
@@ -228,23 +227,15 @@ static bool activate_whistle(PlayerType *player_ptr, ae_type *ae_ptr)
 }
 
 /*!
- * @brief 装備を発動するコマンドのサブルーチン /
- * Activate a wielded object.  Wielded objects never stack.
- * And even if they did, activatable objects never stack.
- * @param item 発動するオブジェクトの所持品ID
- * @details
- * <pre>
- * Currently, only (some) artifacts, and Dragon Scale Mail, can be activated.
- * But one could, for example, easily make an activatable "Ring of Plasma".
- * Note that it always takes a turn to activate an artifact, even if
- * the user hits "escape" at the "direction" prompt.
- * </pre>
+ * @brief 装備を発動するコマンドのサブルーチン
+ * @param player_ptr プレイヤーへの参照ポインタ
+ * @param i_idx 発動するオブジェクトの所持品ID
  */
-void exe_activate(PlayerType *player_ptr, INVENTORY_IDX item)
+void exe_activate(PlayerType *player_ptr, INVENTORY_IDX i_idx)
 {
     PlayerEnergy(player_ptr).set_player_turn_energy(100);
     ae_type tmp_ae;
-    ae_type *ae_ptr = initialize_ae_type(player_ptr, &tmp_ae, item);
+    ae_type *ae_ptr = initialize_ae_type(player_ptr, &tmp_ae, i_idx);
     decide_activation_level(ae_ptr);
     decide_chance_fail(player_ptr, ae_ptr);
     if (cmd_limit_time_walk(player_ptr)) {
@@ -260,7 +251,11 @@ void exe_activate(PlayerType *player_ptr, INVENTORY_IDX item)
     sound(SOUND_ZAP);
     if (activation_index(ae_ptr->o_ptr) > RandomArtActType::NONE) {
         (void)activate_artifact(player_ptr, ae_ptr->o_ptr);
-        player_ptr->window_flags |= PW_INVEN | PW_EQUIP;
+        static constexpr auto flags = {
+            SubWindowRedrawingFlag::INVENTORY,
+            SubWindowRedrawingFlag::EQUIPMENT,
+        };
+        RedrawingFlagsUpdater::get_instance().set_flags(flags);
         return;
     }
 
@@ -268,7 +263,7 @@ void exe_activate(PlayerType *player_ptr, INVENTORY_IDX item)
         return;
     }
 
-    if (exe_monster_capture(player_ptr, ae_ptr)) {
+    if (exe_monster_capture(player_ptr, *ae_ptr->o_ptr)) {
         return;
     }
 

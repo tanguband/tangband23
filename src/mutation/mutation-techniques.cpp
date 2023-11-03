@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 突然変異でのみ得ることができる特殊能力処理
  * @date 2020/07/04
  * @author Hourier
@@ -29,7 +29,7 @@
 bool eat_rock(PlayerType *player_ptr)
 {
     DIRECTION dir;
-    if (!get_direction(player_ptr, &dir, false, false)) {
+    if (!get_direction(player_ptr, &dir)) {
         return false;
     }
 

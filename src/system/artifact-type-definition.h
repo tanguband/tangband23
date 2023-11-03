@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "object-enchant/tr-flags.h"
 #include "object-enchant/trg-types.h"
@@ -51,9 +51,10 @@ public:
     ~ArtifactsInfo() = default;
 
     static ArtifactsInfo &get_instance();
-    ArtifactType *get_artifact(const FixedArtifactId id) const;
+    ArtifactType &get_artifact(const FixedArtifactId id) const;
 
 private:
     ArtifactsInfo() = default;
     static ArtifactsInfo instance;
+    static ArtifactType dummy;
 };

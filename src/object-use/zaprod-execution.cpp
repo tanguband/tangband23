@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ロッドを振る処理
  * @date 2021/09/25
  * @author Hourier
@@ -7,7 +7,6 @@
 #include "action/action-limited.h"
 #include "avatar/avatar.h"
 #include "cmd-item/cmd-zaprod.h" // 相互依存。暫定的措置、後で何とかする.
-#include "core/player-update-types.h"
 #include "core/window-redrawer.h"
 #include "game-option/disturbance-options.h"
 #include "main/sound-definitions-table.h"
@@ -23,6 +22,7 @@
 #include "system/baseitem-info.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/target-getter.h"
 #include "term/screen-processor.h"
 #include "timed-effect/player-confusion.h"
@@ -43,12 +43,12 @@ ObjectZapRodEntity::ObjectZapRodEntity(PlayerType *player_ptr)
 /*!
  * @brief ロッドを使う
  */
-void ObjectZapRodEntity::execute(INVENTORY_IDX item)
+void ObjectZapRodEntity::execute(INVENTORY_IDX i_idx)
 {
     DIRECTION dir = 0;
     auto use_charge = true;
-    auto *o_ptr = ref_item(this->player_ptr, item);
-    if ((item < 0) && (o_ptr->number > 1)) {
+    auto *o_ptr = ref_item(this->player_ptr, i_idx);
+    if ((i_idx < 0) && (o_ptr->number > 1)) {
         msg_print(_("まずはロッドを拾わなければ。", "You must first pick up the rods."));
         return;
     }
@@ -64,7 +64,7 @@ void ObjectZapRodEntity::execute(INVENTORY_IDX item)
         return;
     }
 
-    auto lev = baseitems_info[o_ptr->bi_id].level;
+    auto lev = o_ptr->get_baseitem().level;
     auto chance = this->player_ptr->skill_dev;
     if (this->player_ptr->effects()->confusion()->is_confused()) {
         chance = chance / 2;
@@ -104,7 +104,7 @@ void ObjectZapRodEntity::execute(INVENTORY_IDX item)
         return;
     }
 
-    const auto &baseitem = baseitems_info[o_ptr->bi_id];
+    const auto &baseitem = o_ptr->get_baseitem();
     if ((o_ptr->number == 1) && (o_ptr->timeout)) {
         if (flush_failure) {
             flush();
@@ -127,11 +127,16 @@ void ObjectZapRodEntity::execute(INVENTORY_IDX item)
         o_ptr->timeout += baseitem.pval;
     }
 
-    this->player_ptr->update |= PU_COMBINE | PU_REORDER;
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::COMBINATION,
+        StatusRecalculatingFlag::REORDER,
+    };
+    rfu.set_flags(flags_srf);
     if (!(o_ptr->is_aware())) {
-        chg_virtue(this->player_ptr, V_PATIENCE, -1);
-        chg_virtue(this->player_ptr, V_CHANCE, 1);
-        chg_virtue(this->player_ptr, V_KNOWLEDGE, -1);
+        chg_virtue(this->player_ptr, Virtue::PATIENCE, -1);
+        chg_virtue(this->player_ptr, Virtue::CHANCE, 1);
+        chg_virtue(this->player_ptr, Virtue::KNOWLEDGE, -1);
     }
 
     object_tried(o_ptr);
@@ -140,7 +145,14 @@ void ObjectZapRodEntity::execute(INVENTORY_IDX item)
         gain_exp(this->player_ptr, (lev + (this->player_ptr->lev >> 1)) / this->player_ptr->lev);
     }
 
-    set_bits(this->player_ptr->window_flags, PW_INVEN | PW_EQUIP | PW_PLAYER | PW_FLOOR_ITEM_LIST | PW_FOUND_ITEM_LIST);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::INVENTORY,
+        SubWindowRedrawingFlag::EQUIPMENT,
+        SubWindowRedrawingFlag::PLAYER,
+        SubWindowRedrawingFlag::FLOOR_ITEMS,
+        SubWindowRedrawingFlag::FOUND_ITEMS,
+    };
+    rfu.set_flags(flags_swrf);
 }
 
 bool ObjectZapRodEntity::check_can_zap()

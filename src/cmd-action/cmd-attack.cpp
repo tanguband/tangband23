@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 攻撃コマンド処理
  * @date 2020/05/23
  * @author Hourier
@@ -11,7 +11,6 @@
 #include "combat/attack-criticality.h"
 #include "core/asking-player.h"
 #include "core/disturbance.h"
-#include "core/player-update-types.h"
 #include "core/stuff-handler.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "effect/effect-characteristics.h"
@@ -72,7 +71,7 @@ static void natural_attack(PlayerType *player_ptr, MONSTER_IDX m_idx, PlayerMuta
 {
     WEIGHT n_weight = 0;
     auto *m_ptr = &player_ptr->current_floor_ptr->m_list[m_idx];
-    auto *r_ptr = &monraces_info[m_ptr->r_idx];
+    auto *r_ptr = &m_ptr->get_monrace();
 
     int dice_num, dice_side;
     concptr atk_desc;
@@ -112,9 +111,7 @@ static void natural_attack(PlayerType *player_ptr, MONSTER_IDX m_idx, PlayerMuta
         atk_desc = _("未定義の部位", "undefined body part");
     }
 
-    GAME_TEXT m_name[MAX_NLEN];
-    monster_desc(player_ptr, m_name, m_ptr, 0);
-
+    const auto m_name = monster_desc(player_ptr, m_ptr, 0);
     int bonus = player_ptr->to_h_m + (player_ptr->lev * 6 / 5);
     int chance = (player_ptr->skill_thn + (bonus * BTH_PLUS_ADJ));
 
@@ -122,12 +119,12 @@ static void natural_attack(PlayerType *player_ptr, MONSTER_IDX m_idx, PlayerMuta
     is_hit &= test_hit_norm(player_ptr, chance, r_ptr->ac, m_ptr->ml);
     if (!is_hit) {
         sound(SOUND_MISS);
-        msg_format(_("ミス！ %sにかわされた。", "You miss %s."), m_name);
+        msg_format(_("ミス！ %sにかわされた。", "You miss %s."), m_name.data());
         return;
     }
 
     sound(SOUND_HIT);
-    msg_format(_("%sを%sで攻撃した。", "You hit %s with your %s."), m_name, atk_desc);
+    msg_format(_("%sを%sで攻撃した。", "You hit %s with your %s."), m_name.data(), atk_desc);
 
     int k = damroll(dice_num, dice_side);
     k = critical_norm(player_ptr, n_weight, bonus, k, (int16_t)bonus, HISSATSU_NONE);
@@ -154,7 +151,7 @@ static void natural_attack(PlayerType *player_ptr, MONSTER_IDX m_idx, PlayerMuta
     case PlayerMutationType::TENTACLES:
     default: {
         MonsterDamageProcessor mdp(player_ptr, m_idx, k, fear, AttributeType::ATTACK);
-        *mdeath = mdp.mon_take_hit(nullptr);
+        *mdeath = mdp.mon_take_hit("");
         break;
     }
     }
@@ -173,12 +170,18 @@ static void natural_attack(PlayerType *player_ptr, MONSTER_IDX m_idx, PlayerMuta
  */
 bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_options mode)
 {
-    auto *g_ptr = &player_ptr->current_floor_ptr->grid_array[y][x];
-    auto *m_ptr = &player_ptr->current_floor_ptr->m_list[g_ptr->m_idx];
-    auto *r_ptr = &monraces_info[m_ptr->r_idx];
-    GAME_TEXT m_name[MAX_NLEN];
+    auto &floor = *player_ptr->current_floor_ptr;
+    auto *g_ptr = &floor.grid_array[y][x];
+    auto *m_ptr = &floor.m_list[g_ptr->m_idx];
+    auto *r_ptr = &m_ptr->get_monrace();
 
-    const std::initializer_list<PlayerMutationType> mutation_attack_methods = { PlayerMutationType::HORNS, PlayerMutationType::BEAK, PlayerMutationType::SCOR_TAIL, PlayerMutationType::TRUNK, PlayerMutationType::TENTACLES };
+    const auto mutation_attack_methods = {
+        PlayerMutationType::HORNS,
+        PlayerMutationType::BEAK,
+        PlayerMutationType::SCOR_TAIL,
+        PlayerMutationType::TRUNK,
+        PlayerMutationType::TENTACLES,
+    };
 
     disturb(player_ptr, false, true);
 
@@ -186,12 +189,11 @@ bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_option
 
     if (!can_attack_with_main_hand(player_ptr) && !can_attack_with_sub_hand(player_ptr) && player_ptr->muta.has_none_of(mutation_attack_methods)) {
         sound(SOUND_ATTACK_FAILED);
-        msg_format(_("%s攻撃できない。", "You cannot attack."), (empty_hands(player_ptr, false) == EMPTY_HAND_NONE) ? _("両手がふさがって", "") : "");
+        msg_print(_(format("%s攻撃できない。", (empty_hands(player_ptr, false) == EMPTY_HAND_NONE) ? "両手がふさがって" : ""), "You cannot attack."));
         return false;
     }
 
-    monster_desc(player_ptr, m_name, m_ptr, 0);
-
+    const auto m_name = monster_desc(player_ptr, m_ptr, 0);
     auto effects = player_ptr->effects();
     auto is_hallucinated = effects->hallucination()->is_hallucinated();
     if (m_ptr->ml) {
@@ -216,7 +218,7 @@ bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_option
         }
     }
 
-    if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::NO_MELEE)) {
+    if (floor.get_dungeon_definition().flags.has(DungeonFeatureType::NO_MELEE)) {
         sound(SOUND_ATTACK_FAILED);
         msg_print(_("なぜか攻撃することができない。", "Something prevents you from attacking."));
         return false;
@@ -234,19 +236,19 @@ bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_option
         }
 
         if (is_stormbringer) {
-            msg_format(_("黒い刃は強欲に%sを攻撃した！", "Your black blade greedily attacks %s!"), m_name);
-            chg_virtue(player_ptr, V_INDIVIDUALISM, 1);
-            chg_virtue(player_ptr, V_HONOUR, -1);
-            chg_virtue(player_ptr, V_JUSTICE, -1);
-            chg_virtue(player_ptr, V_COMPASSION, -1);
+            msg_format(_("黒い刃は強欲に%sを攻撃した！", "Your black blade greedily attacks %s!"), m_name.data());
+            chg_virtue(player_ptr, Virtue::INDIVIDUALISM, 1);
+            chg_virtue(player_ptr, Virtue::HONOUR, -1);
+            chg_virtue(player_ptr, Virtue::JUSTICE, -1);
+            chg_virtue(player_ptr, Virtue::COMPASSION, -1);
         } else if (!PlayerClass(player_ptr).equals(PlayerClassType::BERSERKER)) {
-            if (get_check(_("本当に攻撃しますか？", "Really hit it? "))) {
-                chg_virtue(player_ptr, V_INDIVIDUALISM, 1);
-                chg_virtue(player_ptr, V_HONOUR, -1);
-                chg_virtue(player_ptr, V_JUSTICE, -1);
-                chg_virtue(player_ptr, V_COMPASSION, -1);
+            if (input_check(_("本当に攻撃しますか？", "Really hit it? "))) {
+                chg_virtue(player_ptr, Virtue::INDIVIDUALISM, 1);
+                chg_virtue(player_ptr, Virtue::HONOUR, -1);
+                chg_virtue(player_ptr, Virtue::JUSTICE, -1);
+                chg_virtue(player_ptr, Virtue::COMPASSION, -1);
             } else {
-                msg_format(_("%sを攻撃するのを止めた。", "You stop to avoid hitting %s."), m_name);
+                msg_format(_("%sを攻撃するのを止めた。", "You stop to avoid hitting %s."), m_name.data());
                 return false;
             }
         }
@@ -255,7 +257,7 @@ bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_option
     if (effects->fear()->is_fearful()) {
         if (m_ptr->ml) {
             sound(SOUND_ATTACK_FAILED);
-            msg_format(_("恐くて%sを攻撃できない！", "You are too fearful to attack %s!"), m_name);
+            msg_format(_("恐くて%sを攻撃できない！", "You are too fearful to attack %s!"), m_name.data());
         } else {
             sound(SOUND_ATTACK_FAILED);
             msg_format(_("そっちには何か恐いものがいる！", "There is something scary in your way!"));
@@ -267,10 +269,10 @@ bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_option
 
     if (m_ptr->is_asleep()) {
         if (r_ptr->kind_flags.has_not(MonsterKindType::EVIL) || one_in_(5)) {
-            chg_virtue(player_ptr, V_COMPASSION, -1);
+            chg_virtue(player_ptr, Virtue::COMPASSION, -1);
         }
         if (r_ptr->kind_flags.has_not(MonsterKindType::EVIL) || one_in_(5)) {
-            chg_virtue(player_ptr, V_HONOUR, -1);
+            chg_virtue(player_ptr, Virtue::HONOUR, -1);
         }
     }
 
@@ -304,7 +306,7 @@ bool do_cmd_attack(PlayerType *player_ptr, POSITION y, POSITION x, combat_option
 
     if (fear && m_ptr->ml && !mdeath) {
         sound(SOUND_FLEE);
-        msg_format(_("%^sは恐怖して逃げ出した！", "%^s flees in terror!"), m_name);
+        msg_format(_("%s^は恐怖して逃げ出した！", "%s^ flees in terror!"), m_name.data());
     }
 
     if (PlayerClass(player_ptr).samurai_stance_is(SamuraiStanceType::IAI) && ((mode != HISSATSU_IAI) || mdeath)) {

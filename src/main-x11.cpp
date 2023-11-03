@@ -1,4 +1,4 @@
-﻿/* File: main-x11.c */
+/* File: main-x11.c */
 
 /*
  * Copyright (c) 1997 Ben Harrison, and others
@@ -95,18 +95,22 @@
 #include "io/files-util.h"
 #include "locale/japanese.h"
 #include "locale/utf-8.h"
+#include "main-unix/x11-type-string.h"
 #include "main/sound-definitions-table.h"
 #include "main/sound-of-music.h"
-#include "main/x11-type-string.h"
 #include "system/angband.h"
 #include "system/system-variables.h"
 #include "term/gameterm.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "util/angband-files.h"
 #include "util/bit-flags-calculator.h"
 #include "util/int-char-converter.h"
 #include "util/string-processor.h"
 #include <algorithm>
+#include <memory>
+#include <span>
+#include <string>
 
 /*
  * Available graphic modes
@@ -133,9 +137,6 @@
 #ifdef USE_XFT
 #include <X11/Xft/Xft.h>
 #endif
-
-#include <memory>
-#include <string>
 
 /*
  * Include some helpful X11 code.
@@ -887,7 +888,7 @@ static void Infofnt_init_data(concptr name)
 }
 
 #ifdef USE_XFT
-static void Infofnt_text_std_xft_draw_str(int x, int y, concptr str, concptr str_end)
+static void Infofnt_text_std_xft_draw_str(int px, int py, const XftColor &fg, concptr str, concptr str_end)
 {
     int offset = 0;
     while (str < str_end) {
@@ -897,10 +898,24 @@ static void Infofnt_text_std_xft_draw_str(int x, int y, concptr str, concptr str
             return;
         }
 
-        XftDrawStringUtf8(Infowin->draw, &Infoclr->fg, Infofnt->info, x + Infofnt->wid * offset, y, (const FcChar8 *)str, byte_len);
+        XftDrawStringUtf8(Infowin->draw, &fg, Infofnt->info, px + Infofnt->wid * offset, py, (const FcChar8 *)str, byte_len);
         offset += (byte_len > 1 ? 2 : 1);
         str += byte_len;
     }
+}
+
+static void Infofnt_text_std_xft(int x, int y, int len, const XftColor &fg, const XftColor &bg, const char *str, int utf8_len)
+{
+    auto *draw = Infowin->draw;
+
+    const auto py = (y * Infofnt->hgt) + Infofnt->asc + Infowin->oy;
+    const auto px = (x * Infofnt->wid) + Infowin->ox;
+
+    XRectangle r{ 0, 0, static_cast<unsigned short>(Infofnt->wid * len), static_cast<unsigned short>(Infofnt->hgt) };
+    XftDrawSetClipRectangles(draw, px, py - Infofnt->asc, &r, 1);
+    XftDrawRect(draw, &bg, px, py - Infofnt->asc, r.width, r.height);
+    Infofnt_text_std_xft_draw_str(px, py, fg, str, str + utf8_len);
+    XftDrawSetClip(draw, 0);
 }
 #endif
 
@@ -917,8 +932,11 @@ static errr Infofnt_text_std(int x, int y, concptr str, int len)
         len = strlen(str);
     }
 
+#ifndef USE_XFT
     y = (y * Infofnt->hgt) + Infofnt->asc + Infowin->oy;
     x = (x * Infofnt->wid) + Infowin->ox;
+#endif
+
     if (Infofnt->mono) {
 #ifndef USE_XFT
         int i;
@@ -936,17 +954,7 @@ static errr Infofnt_text_std(int x, int y, concptr str, int len)
 #endif
 
 #ifdef USE_XFT
-        XftDraw *draw = Infowin->draw;
-
-        XRectangle r;
-        r.x = 0;
-        r.y = 0;
-        r.width = Infofnt->wid * len;
-        r.height = Infofnt->hgt;
-        XftDrawSetClipRectangles(draw, x, y - Infofnt->asc, &r, 1);
-        XftDrawRect(draw, &Infoclr->bg, x, y - Infofnt->asc, Infofnt->wid * len, Infofnt->hgt);
-        Infofnt_text_std_xft_draw_str(x, y, _(utf8_buf, str), _(utf8_buf + utf8_len, str + len));
-        XftDrawSetClip(draw, 0);
+        Infofnt_text_std_xft(x, y, len, Infoclr->fg, Infoclr->bg, _(utf8_buf, str), _(utf8_len, len));
 #else
         XmbDrawImageString(Metadpy->dpy, Infowin->win, Infofnt->info, Infoclr->gc, x, y, _(utf8_buf, str), _(utf8_len, len));
 #endif
@@ -1166,14 +1174,14 @@ static void react_keypress(XKeyEvent *xev)
     }
 
     if (ks) {
-        sprintf(msg, "%c%s%s%s%s_%lX%c", 31, mc ? "N" : "", ms ? "S" : "", mo ? "O" : "", mx ? "M" : "", (unsigned long)(ks), 13);
+        strnfmt(msg, sizeof(msg), "%c%s%s%s%s_%lX%c", 31, mc ? "N" : "", ms ? "S" : "", mo ? "O" : "", mx ? "M" : "", (unsigned long)(ks), 13);
     } else {
-        sprintf(msg, "%c%s%s%s%sK_%X%c", 31, mc ? "N" : "", ms ? "S" : "", mo ? "O" : "", mx ? "M" : "", ev->keycode, 13);
+        strnfmt(msg, sizeof(msg), "%c%s%s%s%sK_%X%c", 31, mc ? "N" : "", ms ? "S" : "", mo ? "O" : "", mx ? "M" : "", ev->keycode, 13);
     }
 
     send_keys(msg);
 
-    if (n && !macro__pat.empty() && (macro_find_exact(msg) < 0)) {
+    if (n && !macro_patterns.empty() && (macro_find_exact(msg) < 0)) {
         macro_add(msg, buf);
     }
 }
@@ -1207,6 +1215,65 @@ static void sort_co_ord(co_ord *min, co_ord *max, const co_ord *b, const co_ord 
     max->y = std::max(a->y, b->y);
 }
 
+#ifdef USE_XFT
+template <class T, class D>
+auto make_unique_ptr_with_deleter(T *p, D d) noexcept
+{
+    return std::unique_ptr<T, D>(p, std::move(d));
+}
+
+/*!
+ * @brief 矩形領域の枠を描画する
+ *
+ * ドラッグ時の選択範囲の表示に使用する。
+ *
+ * @param x 矩形領域の左上のX座標(ピクセル単位)
+ * @param y 矩形領域の左上のY座標(ピクセル単位)
+ * @param widht 矩形領域の幅(ピクセル単位)
+ * @param height 矩形領域の高さ(ピクセル単位)
+ */
+static void draw_rectangle_frame(int x, int y, int width, int height)
+{
+    auto gc = make_unique_ptr_with_deleter(XCreateGC(Metadpy->dpy, Infowin->win, 0, NULL),
+        [dpy = Metadpy->dpy](GC gc) { XFreeGC(dpy, gc); });
+
+    XSetForeground(Metadpy->dpy, gc.get(), WhitePixel(Metadpy->dpy, DefaultScreen(Metadpy->dpy)));
+    XDrawLine(Metadpy->dpy, Infowin->win, gc.get(), x, y, x + width, y);
+    XDrawLine(Metadpy->dpy, Infowin->win, gc.get(), x, y, x, y + height);
+    XDrawLine(Metadpy->dpy, Infowin->win, gc.get(), x + width, y, x + width, y + height);
+    XDrawLine(Metadpy->dpy, Infowin->win, gc.get(), x, y + height, x + width, y + height);
+}
+#endif
+
+#ifdef USE_XFT
+static void draw_cursor_xft(int x, int y, int len)
+{
+    // term_what() では中央寄せ時に座標がずれるので直接取得
+    const std::span<const char> cursor_chars(&game_term->scr->c[y][x], len);
+
+#ifdef JP
+    char utf8_buf[16];
+    const auto utf8_len = euc_to_utf8(cursor_chars.data(), cursor_chars.size(), utf8_buf, sizeof(utf8_buf));
+    if (utf8_len < 0) {
+        return;
+    }
+#endif
+    Infofnt_text_std_xft(x, y, len, Infoclr->bg, Infoclr->fg, _(utf8_buf, cursor_chars.data()), _(utf8_len, len));
+}
+#endif
+
+static void draw_cursor(int x, int y, int len)
+{
+#ifdef USE_XFT
+    draw_cursor_xft(x, y, len);
+#else
+    square_to_pixel(&x, &y, x, y);
+    const auto width = Infofnt->wid * len;
+    const auto height = Infofnt->hgt;
+    XFillRectangle(Metadpy->dpy, Infowin->win, Infoclr->gc, x, y, width, height);
+#endif
+}
+
 /*
  * Remove the selection by redrawing it.
  */
@@ -1225,7 +1292,7 @@ static void mark_selection_mark(int x1, int y1, int x2, int y2)
     square_to_pixel(&x1, &y1, x1, y1);
     square_to_pixel(&x2, &y2, x2, y2);
 #ifdef USE_XFT
-    XftDrawRect(Infowin->draw, &clr[2]->fg, x1, y1, x2 - x1 + Infofnt->wid - 1, y2 - y1 + Infofnt->hgt - 1);
+    draw_rectangle_frame(x1, y1, x2 - x1 + Infofnt->wid - 1, y2 - y1 + Infofnt->hgt - 1);
 #else
     XDrawRectangle(Metadpy->dpy, Infowin->win, clr[2]->gc, x1, y1, x2 - x1 + Infofnt->wid - 1, y2 - y1 + Infofnt->hgt - 1);
 #endif
@@ -1731,11 +1798,11 @@ static errr CheckEvent(bool wait)
         }
 
         if (td == &data[0]) {
-            if (cols < 80) {
-                cols = 80;
+            if (cols < MAIN_TERM_MIN_COLS) {
+                cols = MAIN_TERM_MIN_COLS;
             }
-            if (rows < 24) {
-                rows = 24;
+            if (rows < MAIN_TERM_MIN_ROWS) {
+                rows = MAIN_TERM_MIN_ROWS;
             }
         }
 
@@ -1798,16 +1865,14 @@ static bool check_file(concptr s)
  */
 static void init_sound(void)
 {
-    int i;
-    char wav[128];
-    char buf[1024];
-    char dir_xtra_sound[1024];
-    path_build(dir_xtra_sound, sizeof(dir_xtra_sound), ANGBAND_DIR_XTRA, "sound");
-    for (i = 1; i < SOUND_MAX; i++) {
-        sprintf(wav, "%s.wav", angband_sound_name[i]);
-        path_build(buf, sizeof(buf), dir_xtra_sound, wav);
-        if (check_file(buf)) {
-            sound_file[i] = string_make(buf);
+    const auto &dir_xtra_sound = path_build(ANGBAND_DIR_XTRA, "sound");
+    for (auto i = 1; i < SOUND_MAX; i++) {
+        std::string wav = angband_sound_name[i];
+        wav.append(".wav");
+        const auto &path = path_build(dir_xtra_sound, wav);
+        const auto &filename = path.string();
+        if (check_file(filename.data())) {
+            sound_file[i] = string_make(filename.data());
         }
     }
 
@@ -1820,7 +1885,6 @@ static void init_sound(void)
  */
 static errr game_term_xtra_x11_sound(int v)
 {
-    char buf[1024];
     if (!use_sound) {
         return 1;
     }
@@ -1831,8 +1895,9 @@ static errr game_term_xtra_x11_sound(int v)
         return 1;
     }
 
-    sprintf(buf, "./playwave.sh %s\n", sound_file[v]);
-    return system(buf) < 0;
+    std::string buf = "./playwave.sh ";
+    buf.append(sound_file[v]).append("\n");
+    return system(buf.data()) < 0;
 }
 
 /*
@@ -1938,7 +2003,7 @@ static errr game_term_curs_x11(int x, int y)
 #endif
     } else {
         Infoclr_set(xor_.get());
-        Infofnt_text_non(x, y, " ", 1);
+        draw_cursor(x, y, 1);
     }
 
     return 0;
@@ -1961,7 +2026,7 @@ static errr game_term_bigcurs_x11(int x, int y)
 #endif
     } else {
         Infoclr_set(xor_.get());
-        Infofnt_text_non(x, y, "  ", 2);
+        draw_cursor(x, y, 2);
     }
 
     return 0;
@@ -2185,15 +2250,13 @@ static errr term_data_init(term_data *td, int i)
     int x = 0;
     int y = 0;
 
-    int cols = 80;
-    int rows = 24;
+    int cols = TERM_DEFAULT_COLS;
+    int rows = TERM_DEFAULT_ROWS;
 
     int ox = 1;
     int oy = 1;
 
     int wid, hgt, num;
-
-    char buf[80];
 
     concptr str;
 
@@ -2209,8 +2272,7 @@ static errr term_data_init(term_data *td, int i)
     XWMHints *wh;
 #endif
 
-    sprintf(buf, "ANGBAND_X11_FONT_%d", i);
-    font = getenv(buf);
+    font = getenv(format("ANGBAND_X11_FONT_%d", i).data());
     if (!font) {
         font = getenv("ANGBAND_X11_FONT");
     }
@@ -2247,46 +2309,40 @@ static errr term_data_init(term_data *td, int i)
         }
     }
 
-    sprintf(buf, "ANGBAND_X11_AT_X_%d", i);
-    str = getenv(buf);
+    str = getenv(format("ANGBAND_X11_AT_X_%d", i).data());
     x = (str != nullptr) ? atoi(str) : -1;
 
-    sprintf(buf, "ANGBAND_X11_AT_Y_%d", i);
-    str = getenv(buf);
+    str = getenv(format("ANGBAND_X11_AT_Y_%d", i).data());
     y = (str != nullptr) ? atoi(str) : -1;
 
-    sprintf(buf, "ANGBAND_X11_COLS_%d", i);
-    str = getenv(buf);
+    str = getenv(format("ANGBAND_X11_COLS_%d", i).data());
     val = (str != nullptr) ? atoi(str) : -1;
     if (val > 0) {
         cols = val;
     }
 
-    sprintf(buf, "ANGBAND_X11_ROWS_%d", i);
-    str = getenv(buf);
+    str = getenv(format("ANGBAND_X11_ROWS_%d", i).data());
     val = (str != nullptr) ? atoi(str) : -1;
     if (val > 0) {
         rows = val;
     }
 
     if (!i) {
-        if (cols < 80) {
-            cols = 80;
+        if (cols < MAIN_TERM_MIN_COLS) {
+            cols = MAIN_TERM_MIN_COLS;
         }
-        if (rows < 24) {
-            rows = 24;
+        if (rows < MAIN_TERM_MIN_ROWS) {
+            rows = MAIN_TERM_MIN_ROWS;
         }
     }
 
-    sprintf(buf, "ANGBAND_X11_IBOX_%d", i);
-    str = getenv(buf);
+    str = getenv(format("ANGBAND_X11_IBOX_%d", i).data());
     val = (str != nullptr) ? atoi(str) : -1;
     if (val > 0) {
         ox = val;
     }
 
-    sprintf(buf, "ANGBAND_X11_IBOY_%d", i);
-    str = getenv(buf);
+    str = getenv(format("ANGBAND_X11_IBOY_%d", i).data());
     val = (str != nullptr) ? atoi(str) : -1;
     if (val > 0) {
         oy = val;
@@ -2334,8 +2390,8 @@ static errr term_data_init(term_data *td, int i)
 
     if (i == 0) {
         sh->flags = PMinSize | PMaxSize;
-        sh->min_width = 80 * td->fnt->wid + (ox + ox);
-        sh->min_height = 24 * td->fnt->hgt + (oy + oy);
+        sh->min_width = MAIN_TERM_MIN_COLS * td->fnt->wid + (ox + ox);
+        sh->min_height = MAIN_TERM_MIN_ROWS * td->fnt->hgt + (oy + oy);
         sh->max_width = 255 * td->fnt->wid + (ox + ox);
         sh->max_height = 255 * td->fnt->hgt + (oy + oy);
     } else {
@@ -2396,8 +2452,6 @@ errr init_x11(int argc, char *argv[])
     int num_term = 3;
 
 #ifndef USE_XFT
-    char filename[1024];
-
     int pict_wid = 0;
     int pict_hgt = 0;
 
@@ -2525,23 +2579,28 @@ errr init_x11(int argc, char *argv[])
     }
 
 #ifndef USE_XFT
+    char filename[1024]{};
     switch (arg_graphics) {
-    case GRAPHICS_ORIGINAL:
-        path_build(filename, sizeof(filename), ANGBAND_DIR_XTRA, "graf/8x8.bmp");
-        if (0 == fd_close(fd_open(filename, O_RDONLY))) {
+    case GRAPHICS_ORIGINAL: {
+        const auto &path = path_build(ANGBAND_DIR_XTRA, "graf/8x8.bmp");
+        if (0 == fd_close(fd_open(path, O_RDONLY))) {
             use_graphics = true;
             pict_wid = pict_hgt = 8;
             ANGBAND_GRAF = "old";
+            angband_strcpy(filename, path.string().data(), sizeof(filename));
         }
         break;
-    case GRAPHICS_ADAM_BOLT:
-        path_build(filename, sizeof(filename), ANGBAND_DIR_XTRA, "graf/16x16.bmp");
-        if (0 == fd_close(fd_open(filename, O_RDONLY))) {
+    }
+    case GRAPHICS_ADAM_BOLT: {
+        const auto &path = path_build(ANGBAND_DIR_XTRA, "graf/16x16.bmp");
+        if (0 == fd_close(fd_open(path, O_RDONLY))) {
             use_graphics = true;
             pict_wid = pict_hgt = 16;
             ANGBAND_GRAF = "new";
+            angband_strcpy(filename, path.string().data(), sizeof(filename));
         }
         break;
+    }
     }
 
     if (use_graphics) {

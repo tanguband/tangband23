@@ -1,4 +1,4 @@
-﻿#include "load/old/item-loader-savefile50.h"
+#include "load/old/item-loader-savefile50.h"
 #include "artifact/fixed-art-types.h"
 #include "game-option/runtime-arguments.h"
 #include "load/angband-version-comparer.h"
@@ -8,7 +8,6 @@
 #include "load/savedata-old-flag-types.h"
 #include "object-enchant/object-ego.h"
 #include "object-enchant/tr-types.h"
-#include "object/object-flags.h"
 #include "object/tval-types.h"
 #include "sv-definition/sv-lite-types.h"
 #include "system/angband.h"
@@ -17,7 +16,6 @@
 #include "system/player-type-definition.h"
 #include "util/bit-flags-calculator.h"
 #include "util/enum-converter.h"
-#include "util/quarks.h"
 
 /*!
  * @brief アイテムオブジェクトを読み込む(v3.0.0 Savefile ver50まで)
@@ -34,7 +32,7 @@ void ItemLoader50::rd_item(ItemEntity *o_ptr)
     o_ptr->bi_id = rd_s16b();
     o_ptr->iy = rd_byte();
     o_ptr->ix = rd_byte();
-    auto &baseitem = baseitems_info[o_ptr->bi_id];
+    auto &baseitem = o_ptr->get_baseitem();
     o_ptr->bi_key = baseitem.bi_key;
     o_ptr->pval = any_bits(flags, SaveDataItemFlagType::PVAL) ? rd_s16b() : 0;
     o_ptr->discount = any_bits(flags, SaveDataItemFlagType::DISCOUNT) ? rd_byte() : 0;
@@ -175,17 +173,17 @@ void ItemLoader50::rd_item(ItemEntity *o_ptr)
     if (any_bits(flags, SaveDataItemFlagType::INSCRIPTION)) {
         char buf[128];
         rd_string(buf, sizeof(buf));
-        o_ptr->inscription = quark_add(buf);
+        o_ptr->inscription.emplace(buf);
     } else {
-        o_ptr->inscription = 0;
+        o_ptr->inscription.reset();
     }
 
     if (any_bits(flags, SaveDataItemFlagType::ART_NAME)) {
         char buf[128];
         rd_string(buf, sizeof(buf));
-        o_ptr->art_name = quark_add(buf);
+        o_ptr->randart_name.emplace(buf);
     } else {
-        o_ptr->art_name = 0;
+        o_ptr->randart_name.reset();
     }
 
     if (!h_older_than(2, 1, 2, 4)) {

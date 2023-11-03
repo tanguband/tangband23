@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 破邪魔法処理
  * @date 2020/06/05
  * @author Hourier
@@ -6,8 +6,6 @@
 
 #include "spell-realm/spells-crusade.h"
 #include "core/disturbance.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/stuff-handler.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
@@ -18,9 +16,11 @@
 #include "grid/feature-flag-types.h"
 #include "spell-realm/spells-crusade.h"
 #include "spell/range-calc.h"
+#include "system/angband-system.h"
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/projection-path-calculator.h"
 #include "target/target-checker.h"
 #include "target/target-getter.h"
@@ -59,7 +59,7 @@ bool cast_wrath_of_the_god(PlayerType *player_ptr, int dam, POSITION rad)
         ny = y;
         nx = x;
         mmove2(&ny, &nx, player_ptr->y, player_ptr->x, ty, tx);
-        if (get_max_range(player_ptr) <= distance(player_ptr->y, player_ptr->x, ny, nx)) {
+        if (AngbandSystem::get_instance().get_max_range() <= distance(player_ptr->y, player_ptr->x, ny, nx)) {
             break;
         }
         if (!cave_has_flag_bold(player_ptr->current_floor_ptr, ny, nx, TerrainCharacteristics::PROJECT)) {
@@ -141,8 +141,9 @@ bool set_tim_sh_holy(PlayerType *player_ptr, TIME_EFFECT v, bool do_dec)
         }
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     player_ptr->tim_sh_holy = v;
-    player_ptr->redraw |= (PR_STATUS);
+    rfu.set_flag(MainWindowRedrawingFlag::TIMED_EFFECT);
 
     if (!notice) {
         return false;
@@ -151,7 +152,8 @@ bool set_tim_sh_holy(PlayerType *player_ptr, TIME_EFFECT v, bool do_dec)
     if (disturb_state) {
         disturb(player_ptr, false, false);
     }
-    player_ptr->update |= (PU_BONUS);
+
+    rfu.set_flag(StatusRecalculatingFlag::BONUS);
     handle_stuff(player_ptr);
     return true;
 }
@@ -189,8 +191,9 @@ bool set_tim_eyeeye(PlayerType *player_ptr, TIME_EFFECT v, bool do_dec)
         }
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     player_ptr->tim_eyeeye = v;
-    player_ptr->redraw |= (PR_STATUS);
+    rfu.set_flag(MainWindowRedrawingFlag::TIMED_EFFECT);
 
     if (!notice) {
         return false;
@@ -199,7 +202,8 @@ bool set_tim_eyeeye(PlayerType *player_ptr, TIME_EFFECT v, bool do_dec)
     if (disturb_state) {
         disturb(player_ptr, false, false);
     }
-    player_ptr->update |= (PU_BONUS);
+
+    rfu.set_flag(StatusRecalculatingFlag::BONUS);
     handle_stuff(player_ptr);
     return true;
 }

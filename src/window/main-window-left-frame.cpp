@@ -1,4 +1,5 @@
-﻿#include "window/main-window-left-frame.h"
+#include "window/main-window-left-frame.h"
+#include "dungeon/quest.h"
 #include "game-option/special-options.h"
 #include "game-option/text-display-options.h"
 #include "market/arena-info-table.h"
@@ -8,12 +9,15 @@
 #include "player-info/class-info.h"
 #include "player-info/mimic-info-table.h"
 #include "player/player-status-table.h"
+#include "system/angband-system.h"
 #include "system/floor-type-definition.h"
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "term/gameterm.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "timed-effect/player-hallucination.h"
 #include "timed-effect/timed-effects.h"
 #include "util/string-processor.h"
@@ -21,6 +25,14 @@
 #include "window/main-window-stat-poster.h"
 #include "window/main-window-util.h"
 #include "world/world.h"
+
+/*!
+ * @brief ターゲットしているモンスターの情報部に表示する状態異常と文字色の対応を保持する構造体
+ */
+struct condition_layout_info {
+    std::string label;
+    TERM_COLOR color;
+};
 
 /*!
  * @brief プレイヤーの称号を表示する / Prints "title", including "wizard" or "winner" as needed.
@@ -38,7 +50,7 @@ void print_title(PlayerType *player_ptr)
             p = _("***勝利者***", "***WINNER***");
         }
     } else {
-        angband_strcpy(str, player_titles[enum2i(player_ptr->pclass)][(player_ptr->lev - 1) / 5].data(), sizeof(str));
+        angband_strcpy(str, player_titles[enum2i(player_ptr->pclass)][(player_ptr->lev - 1) / 5], sizeof(str));
         p = str;
     }
 
@@ -50,8 +62,7 @@ void print_title(PlayerType *player_ptr)
  */
 void print_level(PlayerType *player_ptr)
 {
-    char tmp[32];
-    sprintf(tmp, "%5d", player_ptr->lev);
+    const auto tmp = format("%5d", player_ptr->lev);
     if (player_ptr->lev >= player_ptr->max_plv) {
         put_str(_("レベル ", "LEVEL "), ROW_LEVEL, 0);
         c_put_str(TERM_L_GREEN, tmp, ROW_LEVEL, COL_LEVEL + 7);
@@ -66,16 +77,16 @@ void print_level(PlayerType *player_ptr)
  */
 void print_exp(PlayerType *player_ptr)
 {
-    char out_val[32];
+    std::string out_val;
 
     PlayerRace pr(player_ptr);
     if ((!exp_need) || pr.equals(PlayerRaceType::ANDROID)) {
-        (void)sprintf(out_val, "%8ld", (long)player_ptr->exp);
+        out_val = format("%8ld", (long)player_ptr->exp);
     } else {
         if (player_ptr->lev >= PY_MAX_LEVEL) {
-            (void)sprintf(out_val, "********");
+            out_val = "********";
         } else {
-            (void)sprintf(out_val, "%8ld", (long)(player_exp[player_ptr->lev - 1] * player_ptr->expfact / 100L) - player_ptr->exp);
+            out_val = format("%8ld", (long)(player_exp[player_ptr->lev - 1] * player_ptr->expfact / 100L) - player_ptr->exp);
         }
     }
 
@@ -97,18 +108,9 @@ void print_exp(PlayerType *player_ptr)
  */
 void print_ac(PlayerType *player_ptr)
 {
-    char tmp[32];
-
-#ifdef JP
     /* AC の表示方式を変更している */
-    put_str(" ＡＣ(     )", ROW_AC, COL_AC);
-    sprintf(tmp, "%5d", player_ptr->dis_ac + player_ptr->dis_to_a);
-    c_put_str(TERM_L_GREEN, tmp, ROW_AC, COL_AC + 6);
-#else
-    put_str("Cur AC ", ROW_AC, COL_AC);
-    sprintf(tmp, "%5d", player_ptr->dis_ac + player_ptr->dis_to_a);
-    c_put_str(TERM_L_GREEN, tmp, ROW_AC, COL_AC + 7);
-#endif
+    put_str(_(" ＡＣ(     )", "Cur AC "), ROW_AC, COL_AC);
+    c_put_str(TERM_L_GREEN, format("%5d", player_ptr->dis_ac + player_ptr->dis_to_a), ROW_AC, COL_AC + _(6, 7));
 }
 
 /*!
@@ -116,9 +118,7 @@ void print_ac(PlayerType *player_ptr)
  */
 void print_hp(PlayerType *player_ptr)
 {
-    char tmp[32];
     put_str("HP", ROW_CURHP, COL_CURHP);
-    sprintf(tmp, "%4ld", (long int)player_ptr->chp);
     TERM_COLOR color;
     if (player_ptr->chp >= player_ptr->mhp) {
         color = TERM_L_GREEN;
@@ -128,11 +128,10 @@ void print_hp(PlayerType *player_ptr)
         color = TERM_RED;
     }
 
-    c_put_str(color, tmp, ROW_CURHP, COL_CURHP + 3);
+    c_put_str(color, format("%4ld", (long int)player_ptr->chp), ROW_CURHP, COL_CURHP + 3);
     put_str("/", ROW_CURHP, COL_CURHP + 7);
-    sprintf(tmp, "%4ld", (long int)player_ptr->mhp);
     color = TERM_L_GREEN;
-    c_put_str(color, tmp, ROW_CURHP, COL_CURHP + 8);
+    c_put_str(color, format("%4ld", (long int)player_ptr->mhp), ROW_CURHP, COL_CURHP + 8);
 }
 
 /*!
@@ -140,14 +139,12 @@ void print_hp(PlayerType *player_ptr)
  */
 void print_sp(PlayerType *player_ptr)
 {
-    char tmp[32];
-    byte color;
     if ((mp_ptr->spell_book == ItemKindType::NONE) && mp_ptr->spell_first == SPELL_FIRST_NO_SPELL) {
         return;
     }
 
     put_str(_("MP", "SP"), ROW_CURSP, COL_CURSP);
-    sprintf(tmp, "%4ld", (long int)player_ptr->csp);
+    byte color;
     if (player_ptr->csp >= player_ptr->msp) {
         color = TERM_L_GREEN;
     } else if (player_ptr->csp > (player_ptr->msp * mana_warn) / 10) {
@@ -156,11 +153,10 @@ void print_sp(PlayerType *player_ptr)
         color = TERM_RED;
     }
 
-    c_put_str(color, tmp, ROW_CURSP, COL_CURSP + 3);
+    c_put_str(color, format("%4ld", (long int)player_ptr->csp), ROW_CURSP, COL_CURSP + 3);
     put_str("/", ROW_CURSP, COL_CURSP + 7);
-    sprintf(tmp, "%4ld", (long int)player_ptr->msp);
     color = TERM_L_GREEN;
-    c_put_str(color, tmp, ROW_CURSP, COL_CURSP + 8);
+    c_put_str(color, format("%4ld", (long int)player_ptr->msp), ROW_CURSP, COL_CURSP + 8);
 }
 
 /*!
@@ -169,10 +165,8 @@ void print_sp(PlayerType *player_ptr)
  */
 void print_gold(PlayerType *player_ptr)
 {
-    char tmp[32];
     put_str(_("＄ ", "AU "), ROW_GOLD, COL_GOLD);
-    sprintf(tmp, "%9ld", (long)player_ptr->au);
-    c_put_str(TERM_L_GREEN, tmp, ROW_GOLD, COL_GOLD + 3);
+    c_put_str(TERM_L_GREEN, format("%9ld", (long)player_ptr->au), ROW_GOLD, COL_GOLD + 3);
 }
 
 /*!
@@ -181,31 +175,27 @@ void print_gold(PlayerType *player_ptr)
  */
 void print_depth(PlayerType *player_ptr)
 {
-    char depths[32];
     TERM_COLOR attr = TERM_WHITE;
-
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
+    const auto &[wid, hgt] = term_get_size();
     TERM_LEN col_depth = wid + COL_DEPTH;
     TERM_LEN row_depth = hgt + ROW_DEPTH;
 
     auto *floor_ptr = player_ptr->current_floor_ptr;
     if (!floor_ptr->dun_level) {
-        strcpy(depths, _("地上", "Surf."));
-        c_prt(attr, format("%7s", depths), row_depth, col_depth);
+        c_prt(attr, format("%7s", _("地上", "Surf.")), row_depth, col_depth);
         return;
     }
 
-    if (inside_quest(floor_ptr->quest_number) && !player_ptr->dungeon_idx) {
-        strcpy(depths, _("地上", "Quest"));
-        c_prt(attr, format("%7s", depths), row_depth, col_depth);
+    if (floor_ptr->is_in_quest() && !floor_ptr->dungeon_idx) {
+        c_prt(attr, format("%7s", _("地上", "Quest")), row_depth, col_depth);
         return;
     }
 
+    std::string depths;
     if (depth_in_feet) {
-        (void)sprintf(depths, _("%d ft", "%d ft"), (int)floor_ptr->dun_level * 50);
+        depths = format(_("%d ft", "%d ft"), (int)floor_ptr->dun_level * 50);
     } else {
-        (void)sprintf(depths, _("%d 階", "Lev %d"), (int)floor_ptr->dun_level);
+        depths = format(_("%d 階", "Lev %d"), (int)floor_ptr->dun_level);
     }
 
     switch (player_ptr->feeling) {
@@ -244,7 +234,7 @@ void print_depth(PlayerType *player_ptr)
         break; /* Boring place */
     }
 
-    c_prt(attr, format("%7s", depths), row_depth, col_depth);
+    c_prt(attr, format("%7s", depths.data()), row_depth, col_depth);
 }
 
 /*!
@@ -273,8 +263,70 @@ void print_frame_basic(PlayerType *player_ptr)
     print_sp(player_ptr);
     print_gold(player_ptr);
     print_depth(player_ptr);
-    health_redraw(player_ptr, false);
-    health_redraw(player_ptr, true);
+    print_health(player_ptr, true);
+    print_health(player_ptr, false);
+}
+
+/*!
+ * @brief wizardモード中の闘技場情報を表示する
+ * @param player_ptr プレイヤーへの参照ポインタ
+ */
+static void print_health_monster_in_arena_for_wizard(PlayerType *player_ptr)
+{
+    int row = ROW_INFO - 1;
+    int col = COL_INFO + 2;
+
+    const int max_num_of_monster_in_arena = 4;
+
+    for (int i = 0; i < max_num_of_monster_in_arena; i++) {
+        auto row_offset = i;
+        auto monster_list_index = i + 1; // m_listの1-4に闘技場のモンスターデータが入っている
+
+        term_putstr(col - 2, row + row_offset, 12, TERM_WHITE, "      /     ");
+
+        auto &monster = player_ptr->current_floor_ptr->m_list[monster_list_index];
+        if (MonsterRace(monster.r_idx).is_valid()) {
+            const auto &monrace = monster.get_monrace();
+            term_putstr(col - 2, row + row_offset, 2, monrace.x_attr,
+                format("%c", monrace.x_char));
+            term_putstr(col - 1, row + row_offset, 5, TERM_WHITE, format("%5d", monster.hp));
+            term_putstr(col + 5, row + row_offset, 6, TERM_WHITE, format("%5d", monster.max_maxhp));
+        }
+    }
+}
+
+/*!
+ * @brief 対象のモンスターからcondition_layout_infoのリストを生成して返す
+ * @param monster 対象のモンスター
+ * @return condition_layout_infoのリスト
+ */
+static std::vector<condition_layout_info> get_condition_layout_info(const MonsterEntity &monster)
+{
+    std::vector<condition_layout_info> result;
+
+    if (monster.is_invulnerable()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_INVULNER), TERM_WHITE });
+    }
+    if (monster.is_accelerated()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_FAST), TERM_L_GREEN });
+    }
+    if (monster.is_decelerated()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_SLOW), TERM_UMBER });
+    }
+    if (monster.is_fearful()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_MONFEAR), TERM_SLATE });
+    }
+    if (monster.is_confused()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_CONFUSED), TERM_L_UMBER });
+    }
+    if (monster.is_asleep()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_CSLEEP), TERM_BLUE });
+    }
+    if (monster.is_stunned()) {
+        result.push_back({ effect_type_to_label.at(MTIMED_STUNNED), TERM_ORANGE });
+    }
+
+    return result;
 }
 
 /*!
@@ -296,105 +348,71 @@ void print_frame_basic(PlayerType *player_ptr)
  * health-bar stops tracking any monster that "disappears".
  * </pre>
  */
-void health_redraw(PlayerType *player_ptr, bool riding)
+void print_health(PlayerType *player_ptr, bool riding)
 {
-    int16_t health_who;
+    std::optional<short> monster_idx;
     int row, col;
 
     if (riding) {
-        health_who = player_ptr->riding;
+        if (player_ptr->riding > 0) {
+            monster_idx = player_ptr->riding;
+        }
         row = ROW_RIDING_INFO;
         col = COL_RIDING_INFO;
     } else {
-        health_who = player_ptr->health_who;
+        // ウィザードモードで闘技場観戦時の表示
+        if (w_ptr->wizard && AngbandSystem::get_instance().is_phase_out()) {
+            print_health_monster_in_arena_for_wizard(player_ptr);
+            return;
+        }
+        if (player_ptr->health_who > 0) {
+            monster_idx = player_ptr->health_who;
+        }
         row = ROW_INFO;
         col = COL_INFO;
     }
 
-    MonsterEntity *m_ptr;
-    m_ptr = &player_ptr->current_floor_ptr->m_list[health_who];
+    const auto max_width = 12; // 表示幅
+    const auto &[wid, hgt] = term_get_size();
+    const auto extra_line_count = riding ? 0 : hgt - MAIN_TERM_MIN_ROWS;
+    for (auto y = row; y < row + extra_line_count + 1; ++y) {
+        term_erase(col, y, max_width);
+    }
 
-    if (w_ptr->wizard && player_ptr->phase_out) {
-        row = ROW_INFO - 1;
-        col = COL_INFO + 2;
+    if (!monster_idx.has_value()) {
+        return;
+    }
 
-        term_putstr(col - 2, row, 12, TERM_WHITE, "      /     ");
-        term_putstr(col - 2, row + 1, 12, TERM_WHITE, "      /     ");
-        term_putstr(col - 2, row + 2, 12, TERM_WHITE, "      /     ");
-        term_putstr(col - 2, row + 3, 12, TERM_WHITE, "      /     ");
+    const auto &monster = player_ptr->current_floor_ptr->m_list[monster_idx.value()];
 
-        if (MonsterRace(player_ptr->current_floor_ptr->m_list[1].r_idx).is_valid()) {
-            term_putstr(col - 2, row, 2, monraces_info[player_ptr->current_floor_ptr->m_list[1].r_idx].x_attr,
-                format("%c", monraces_info[player_ptr->current_floor_ptr->m_list[1].r_idx].x_char));
-            term_putstr(col - 1, row, 5, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[1].hp));
-            term_putstr(col + 5, row, 6, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[1].max_maxhp));
+    if ((!monster.ml) || (player_ptr->effects()->hallucination()->is_hallucinated()) || monster.is_dead()) {
+        term_putstr(col, row, max_width, TERM_WHITE, "[----------]");
+        return;
+    }
+
+    const auto &[hit_point_bar_color, len] = monster.get_hp_bar_data();
+    term_putstr(col, row, max_width, TERM_WHITE, "[----------]");
+    term_putstr(col + 1, row, len, hit_point_bar_color, "**********");
+
+    // 騎乗中のモンスターの状態異常は表示しない
+    if (riding) {
+        return;
+    }
+
+    int col_offset = 0;
+    int row_offset = 1;
+
+    // 一時的状態異常
+    // MAX_WIDTHを超えたら次の行に移動する
+    for (const auto &info : get_condition_layout_info(monster)) {
+        if (row_offset > extra_line_count) {
+            break;
         }
-
-        if (MonsterRace(player_ptr->current_floor_ptr->m_list[2].r_idx).is_valid()) {
-            term_putstr(col - 2, row + 1, 2, monraces_info[player_ptr->current_floor_ptr->m_list[2].r_idx].x_attr,
-                format("%c", monraces_info[player_ptr->current_floor_ptr->m_list[2].r_idx].x_char));
-            term_putstr(col - 1, row + 1, 5, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[2].hp));
-            term_putstr(col + 5, row + 1, 6, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[2].max_maxhp));
+        if (col_offset + info.label.length() > max_width) { // 改行が必要かどうかチェック
+            col_offset = 0;
+            row_offset++;
         }
-
-        if (MonsterRace(player_ptr->current_floor_ptr->m_list[3].r_idx).is_valid()) {
-            term_putstr(col - 2, row + 2, 2, monraces_info[player_ptr->current_floor_ptr->m_list[3].r_idx].x_attr,
-                format("%c", monraces_info[player_ptr->current_floor_ptr->m_list[3].r_idx].x_char));
-            term_putstr(col - 1, row + 2, 5, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[3].hp));
-            term_putstr(col + 5, row + 2, 6, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[3].max_maxhp));
-        }
-
-        if (MonsterRace(player_ptr->current_floor_ptr->m_list[4].r_idx).is_valid()) {
-            term_putstr(col - 2, row + 3, 2, monraces_info[player_ptr->current_floor_ptr->m_list[4].r_idx].x_attr,
-                format("%c", monraces_info[player_ptr->current_floor_ptr->m_list[4].r_idx].x_char));
-            term_putstr(col - 1, row + 3, 5, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[4].hp));
-            term_putstr(col + 5, row + 3, 6, TERM_WHITE, format("%5d", player_ptr->current_floor_ptr->m_list[4].max_maxhp));
-        }
-
-        return;
+        term_putstr(col + col_offset, row + row_offset, max_width, info.color, info.label);
+        col_offset += info.label.length() + 1; // 文字数と空白の分だけoffsetを加算
     }
-
-    if (!health_who) {
-        term_erase(col, row, 12);
-        return;
-    }
-
-    if (!m_ptr->ml) {
-        term_putstr(col, row, 12, TERM_WHITE, "[----------]");
-        return;
-    }
-
-    if (player_ptr->effects()->hallucination()->is_hallucinated()) {
-        term_putstr(col, row, 12, TERM_WHITE, "[----------]");
-        return;
-    }
-
-    if (m_ptr->hp < 0) {
-        term_putstr(col, row, 12, TERM_WHITE, "[----------]");
-        return;
-    }
-
-    int pct = m_ptr->maxhp > 0 ? 100L * m_ptr->hp / m_ptr->maxhp : 0;
-    int pct2 = m_ptr->maxhp > 0 ? 100L * m_ptr->hp / m_ptr->max_maxhp : 0;
-    int len = (pct2 < 10) ? 1 : (pct2 < 90) ? (pct2 / 10 + 1)
-                                            : 10;
-    TERM_COLOR attr = TERM_RED;
-    if (m_ptr->is_invulnerable()) {
-        attr = TERM_WHITE;
-    } else if (m_ptr->is_asleep()) {
-        attr = TERM_BLUE;
-    } else if (m_ptr->is_fearful()) {
-        attr = TERM_VIOLET;
-    } else if (pct >= 100) {
-        attr = TERM_L_GREEN;
-    } else if (pct >= 60) {
-        attr = TERM_YELLOW;
-    } else if (pct >= 25) {
-        attr = TERM_ORANGE;
-    } else if (pct >= 10) {
-        attr = TERM_L_RED;
-    }
-
-    term_putstr(col, row, 12, TERM_WHITE, "[----------]");
-    term_putstr(col + 1, row, len, attr, "**********");
 }

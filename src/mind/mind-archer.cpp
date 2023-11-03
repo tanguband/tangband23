@@ -1,8 +1,7 @@
-﻿#include "mind/mind-archer.h"
+#include "mind/mind-archer.h"
 #include "action/action-limited.h"
 #include "autopick/autopick.h"
 #include "core/asking-player.h"
-#include "core/player-update-types.h"
 #include "flavor/flavor-describer.h"
 #include "floor/cave.h"
 #include "floor/floor-object.h"
@@ -17,15 +16,18 @@
 #include "object/item-use-flags.h"
 #include "object/object-kind-hook.h"
 #include "perception/object-perception.h"
+#include "system/angband.h"
 #include "system/baseitem-info.h"
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "target/target-getter.h"
 #include "util/bit-flags-calculator.h"
 #include "view/display-messages.h"
+#include <string>
 
 enum ammo_creation_type {
     AMMO_NONE = 0,
@@ -50,22 +52,22 @@ static bool select_ammo_creation_type(ammo_creation_type &type, PLAYER_LEVEL ple
         }
     }
 
-    concptr com;
+    std::string prompt;
     if (plev >= 20) {
-        com = _("[S]弾, [A]矢, [B]クロスボウの矢 :", "Create [S]hots, Create [A]rrow or Create [B]olt ?");
+        prompt = _("[S]弾, [A]矢, [B]クロスボウの矢 :", "Create [S]hots, Create [A]rrow or Create [B]olt ?");
     } else if (plev >= 10) {
-        com = _("[S]弾, [A]矢:", "Create [S]hots or Create [A]rrow ?");
+        prompt = _("[S]弾, [A]矢:", "Create [S]hots or Create [A]rrow ?");
     } else {
-        com = _("[S]弾:", "Create [S]hots ?");
+        prompt = _("[S]弾:", "Create [S]hots ?");
     }
 
     while (type == AMMO_NONE) {
-        char ch;
-
-        if (!get_com(com, &ch, true)) {
+        const auto command = input_command(prompt, true);
+        if (!command.has_value()) {
             return false;
         }
 
+        const auto ch = command.value();
         if (ch == 'S' || ch == 's') {
             type = AMMO_SHOT;
             break;
@@ -106,7 +108,7 @@ bool create_ammo(PlayerType *player_ptr)
     switch (ext) {
     case AMMO_SHOT: {
         DIRECTION dir;
-        if (!get_rep_dir(player_ptr, &dir, false)) {
+        if (!get_rep_dir(player_ptr, &dir)) {
             return false;
         }
 
@@ -125,29 +127,28 @@ bool create_ammo(PlayerType *player_ptr)
 
         ItemEntity forge;
         auto *q_ptr = &forge;
-        q_ptr->prep(lookup_baseitem_id({ ItemKindType::SHOT, (OBJECT_SUBTYPE_VALUE)m_bonus(1, player_ptr->lev) + 1 }));
+        q_ptr->prep(lookup_baseitem_id({ ItemKindType::SHOT, m_bonus(1, player_ptr->lev) + 1 }));
         q_ptr->number = (byte)rand_range(15, 30);
         object_aware(player_ptr, q_ptr);
         object_known(q_ptr);
         ItemMagicApplier(player_ptr, q_ptr, player_ptr->lev, AM_NO_FIXED_ART).execute();
         q_ptr->discount = 99;
         int16_t slot = store_item_to_inventory(player_ptr, q_ptr);
-        GAME_TEXT o_name[MAX_NLEN];
-        describe_flavor(player_ptr, o_name, q_ptr, 0);
-        msg_format(_("%sを作った。", "You make some ammo."), o_name);
+        const auto item_name = describe_flavor(player_ptr, q_ptr, 0);
+        msg_print(_(format("%sを作った。", item_name.data()), "You make some ammo."));
         if (slot >= 0) {
             autopick_alter_item(player_ptr, slot, false);
         }
 
         cave_alter_feat(player_ptr, y, x, TerrainCharacteristics::HURT_ROCK);
-        player_ptr->update |= PU_FLOW;
+        RedrawingFlagsUpdater::get_instance().set_flag(StatusRecalculatingFlag::FLOW);
         return true;
     }
     case AMMO_ARROW: {
-        concptr q = _("どのアイテムから作りますか？ ", "Convert which item? ");
-        concptr s = _("材料を持っていない。", "You have no item to convert.");
-        OBJECT_IDX item;
-        auto *q_ptr = choose_object(player_ptr, &item, q, s, USE_INVEN | USE_FLOOR, FuncItemTester(&ItemEntity::is_convertible));
+        constexpr auto q = _("どのアイテムから作りますか？ ", "Convert which item? ");
+        constexpr auto s = _("材料を持っていない。", "You have no item to convert.");
+        short i_idx;
+        auto *q_ptr = choose_object(player_ptr, &i_idx, q, s, USE_INVEN | USE_FLOOR, FuncItemTester(&ItemEntity::is_convertible));
         if (!q_ptr) {
             return false;
         }
@@ -160,10 +161,9 @@ bool create_ammo(PlayerType *player_ptr)
         object_known(q_ptr);
         ItemMagicApplier(player_ptr, q_ptr, player_ptr->lev, AM_NO_FIXED_ART).execute();
         q_ptr->discount = 99;
-        GAME_TEXT o_name[MAX_NLEN];
-        describe_flavor(player_ptr, o_name, q_ptr, 0);
-        msg_format(_("%sを作った。", "You make some ammo."), o_name);
-        vary_item(player_ptr, item, -1);
+        const auto item_name = describe_flavor(player_ptr, q_ptr, 0);
+        msg_print(_(format("%sを作った。", item_name.data()), "You make some ammo."));
+        vary_item(player_ptr, i_idx, -1);
         int16_t slot = store_item_to_inventory(player_ptr, q_ptr);
         if (slot >= 0) {
             autopick_alter_item(player_ptr, slot, false);
@@ -172,10 +172,10 @@ bool create_ammo(PlayerType *player_ptr)
         return true;
     }
     case AMMO_BOLT: {
-        concptr q = _("どのアイテムから作りますか？ ", "Convert which item? ");
-        concptr s = _("材料を持っていない。", "You have no item to convert.");
-        OBJECT_IDX item;
-        auto *q_ptr = choose_object(player_ptr, &item, q, s, (USE_INVEN | USE_FLOOR), FuncItemTester(&ItemEntity::is_convertible));
+        constexpr auto q = _("どのアイテムから作りますか？ ", "Convert which item? ");
+        constexpr auto s = _("材料を持っていない。", "You have no item to convert.");
+        short i_idx;
+        auto *q_ptr = choose_object(player_ptr, &i_idx, q, s, (USE_INVEN | USE_FLOOR), FuncItemTester(&ItemEntity::is_convertible));
         if (!q_ptr) {
             return false;
         }
@@ -188,10 +188,9 @@ bool create_ammo(PlayerType *player_ptr)
         object_known(q_ptr);
         ItemMagicApplier(player_ptr, q_ptr, player_ptr->lev, AM_NO_FIXED_ART).execute();
         q_ptr->discount = 99;
-        GAME_TEXT o_name[MAX_NLEN];
-        describe_flavor(player_ptr, o_name, q_ptr, 0);
-        msg_format(_("%sを作った。", "You make some ammo."), o_name);
-        vary_item(player_ptr, item, -1);
+        const auto item_name = describe_flavor(player_ptr, q_ptr, 0);
+        msg_print(_(format("%sを作った。", item_name.data()), "You make some ammo."));
+        vary_item(player_ptr, i_idx, -1);
         int16_t slot = store_item_to_inventory(player_ptr, q_ptr);
         if (slot >= 0) {
             autopick_alter_item(player_ptr, slot, false);

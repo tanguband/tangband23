@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief オブジェクトに関する汎用判定処理
  * @date 2018/09/24
  * @author deskull
@@ -72,7 +72,7 @@ FuncItemTester::FuncItemTester(std::function<bool(PlayerType *, const ItemEntity
  */
 bool ItemTester::okay(const ItemEntity *o_ptr) const
 {
-    if (o_ptr->bi_id == 0) {
+    if (!o_ptr->is_valid()) {
         return false;
     }
 

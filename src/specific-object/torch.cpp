@@ -1,5 +1,4 @@
-﻿#include "specific-object/torch.h"
-#include "core/player-update-types.h"
+#include "specific-object/torch.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "floor/cave.h"
 #include "grid/grid.h"
@@ -7,7 +6,6 @@
 #include "mind/mind-ninja.h"
 #include "object-enchant/object-ego.h"
 #include "object-enchant/tr-types.h"
-#include "object/object-flags.h"
 #include "object/tval-types.h"
 #include "player/special-defense-types.h"
 #include "sv-definition/sv-lite-types.h"
@@ -16,6 +14,7 @@
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "util/bit-flags-calculator.h"
 #include "util/point-2d.h"
 #include <vector>
@@ -34,17 +33,17 @@ bool is_active_torch(ItemEntity *o_ptr)
  * @brief 投擲時たいまつに投げやすい/焼棄/アンデッドスレイの特別効果を返す。
  * Torches have special abilities when they are flaming.
  * @param o_ptr 投擲するオブジェクトの構造体参照ポインタ
- * @param flgs 特別に追加するフラグを返す参照ポインタ
+ * @param flags 特別に追加するフラグを返す参照ポインタ
  */
-void torch_flags(ItemEntity *o_ptr, TrFlags &flgs)
+void torch_flags(ItemEntity *o_ptr, TrFlags &flags)
 {
     if (!is_active_torch(o_ptr)) {
         return;
     }
 
-    flgs.set(TR_BRAND_FIRE);
-    flgs.set(TR_KILL_UNDEAD);
-    flgs.set(TR_THROW);
+    flags.set(TR_BRAND_FIRE);
+    flags.set(TR_KILL_UNDEAD);
+    flags.set(TR_THROW);
 }
 
 /*!
@@ -90,11 +89,8 @@ void update_lite_radius(PlayerType *player_ptr)
 {
     player_ptr->cur_lite = 0;
     for (int i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
-        ItemEntity *o_ptr;
-        o_ptr = &player_ptr->inventory_list[i];
-        auto flgs = object_flags(o_ptr);
-
-        if (!o_ptr->bi_id) {
+        const auto *o_ptr = &player_ptr->inventory_list[i];
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
@@ -102,7 +98,8 @@ void update_lite_radius(PlayerType *player_ptr)
             player_ptr->cur_lite++;
         }
 
-        if (flgs.has_not(TR_DARK_SOURCE)) {
+        const auto flags = o_ptr->get_flags();
+        if (flags.has_not(TR_DARK_SOURCE)) {
             if (o_ptr->bi_key.tval() == ItemKindType::LITE) {
                 const auto sval = o_ptr->bi_key.sval();
                 if ((sval == SV_LITE_TORCH) && (o_ptr->fuel <= 0)) {
@@ -116,34 +113,34 @@ void update_lite_radius(PlayerType *player_ptr)
         }
 
         POSITION rad = 0;
-        if (flgs.has(TR_LITE_1) && flgs.has_not(TR_DARK_SOURCE)) {
+        if (flags.has(TR_LITE_1) && flags.has_not(TR_DARK_SOURCE)) {
             rad += 1;
         }
 
-        if (flgs.has(TR_LITE_2) && flgs.has_not(TR_DARK_SOURCE)) {
+        if (flags.has(TR_LITE_2) && flags.has_not(TR_DARK_SOURCE)) {
             rad += 2;
         }
 
-        if (flgs.has(TR_LITE_3) && flgs.has_not(TR_DARK_SOURCE)) {
+        if (flags.has(TR_LITE_3) && flags.has_not(TR_DARK_SOURCE)) {
             rad += 3;
         }
 
-        if (flgs.has(TR_LITE_M1)) {
+        if (flags.has(TR_LITE_M1)) {
             rad -= 1;
         }
 
-        if (flgs.has(TR_LITE_M2)) {
+        if (flags.has(TR_LITE_M2)) {
             rad -= 2;
         }
 
-        if (flgs.has(TR_LITE_M3)) {
+        if (flags.has(TR_LITE_M3)) {
             rad -= 3;
         }
 
         player_ptr->cur_lite += rad;
     }
 
-    if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::DARKNESS) && player_ptr->cur_lite > 1) {
+    if (player_ptr->current_floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::DARKNESS) && player_ptr->cur_lite > 1) {
         player_ptr->cur_lite = 1;
     }
 
@@ -163,9 +160,13 @@ void update_lite_radius(PlayerType *player_ptr)
         return;
     }
 
-    player_ptr->update |= PU_LITE | PU_MON_LITE | PU_MONSTERS;
+    static constexpr auto flags = {
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::MONSTER_LITE,
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+    };
+    RedrawingFlagsUpdater::get_instance().set_flags(flags);
     player_ptr->old_lite = player_ptr->cur_lite;
-
     if (player_ptr->cur_lite > 0) {
         set_superstealth(player_ptr, false);
     }
@@ -337,5 +338,5 @@ void update_lite(PlayerType *player_ptr)
         cave_redraw_later(floor_ptr, y, x);
     }
 
-    player_ptr->update |= PU_DELAY_VIS;
+    RedrawingFlagsUpdater::get_instance().set_flag(StatusRecalculatingFlag::DELAY_VISIBILITY);
 }

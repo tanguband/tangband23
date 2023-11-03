@@ -1,4 +1,4 @@
-﻿#include "io-dump/character-dump.h"
+#include "io-dump/character-dump.h"
 #include "artifact/fixed-art-types.h"
 #include "avatar/avatar.h"
 #include "cmd-building/cmd-building.h"
@@ -39,6 +39,8 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "term/gameterm.h"
+#include "term/z-form.h"
 #include "util/enum-converter.h"
 #include "util/int-char-converter.h"
 #include "util/sort.h"
@@ -67,7 +69,7 @@ static void dump_aux_pet(PlayerType *player_ptr, FILE *fff)
             continue;
         }
         pet_settings = true;
-        if (!m_ptr->nickname && (player_ptr->riding != i)) {
+        if (!m_ptr->is_named() && (player_ptr->riding != i)) {
             continue;
         }
         if (!pet) {
@@ -75,9 +77,8 @@ static void dump_aux_pet(PlayerType *player_ptr, FILE *fff)
             pet = true;
         }
 
-        GAME_TEXT pet_name[MAX_NLEN];
-        monster_desc(player_ptr, pet_name, m_ptr, MD_ASSUME_VISIBLE | MD_INDEF_VISIBLE);
-        fprintf(fff, "%s\n", pet_name);
+        const auto pet_name = monster_desc(player_ptr, m_ptr, MD_ASSUME_VISIBLE | MD_INDEF_VISIBLE);
+        fprintf(fff, "%s\n", pet_name.data());
     }
 
     if (!pet_settings) {
@@ -118,7 +119,7 @@ static void dump_aux_quest(PlayerType *player_ptr, FILE *fff)
 
     const auto &quest_list = QuestList::get_instance();
     std::vector<QuestId> quest_numbers;
-    for (const auto &[q_idx, q_ref] : quest_list) {
+    for (const auto &[q_idx, quest] : quest_list) {
         quest_numbers.push_back(q_idx);
     }
     int dummy;
@@ -145,18 +146,20 @@ static void dump_aux_last_message(PlayerType *player_ptr, FILE *fff)
     if (!w_ptr->total_winner) {
         fprintf(fff, _("\n  [死ぬ直前のメッセージ]\n\n", "\n  [Last Messages]\n\n"));
         for (int i = std::min(message_num(), 30); i >= 0; i--) {
-            fprintf(fff, "> %s\n", message_str((int16_t)i));
+            fprintf(fff, "> %s\n", message_str(i)->data());
         }
 
         fputc('\n', fff);
         return;
     }
 
-    if (player_ptr->last_message) {
-        fprintf(fff, _("\n  [*勝利*メッセージ]\n\n", "\n  [*Winning* Message]\n\n"));
-        fprintf(fff, "  %s\n", player_ptr->last_message);
-        fputc('\n', fff);
+    if (player_ptr->last_message.empty()) {
+        return;
     }
+
+    fprintf(fff, _("\n  [*勝利*メッセージ]\n\n", "\n  [*Winning* Message]\n\n"));
+    fprintf(fff, "  %s\n", player_ptr->last_message.data());
+    fputc('\n', fff);
 }
 
 /*!
@@ -260,16 +263,18 @@ static void dump_aux_arena(PlayerType *player_ptr, FILE *fff)
         return;
     }
 
-    if (player_ptr->arena_number < 0) {
-        if (player_ptr->arena_number <= ARENA_DEFEATED_OLD_VER) {
+    const auto arena_number = player_ptr->arena_number;
+    if (arena_number < 0) {
+        if (arena_number <= ARENA_DEFEATED_OLD_VER) {
             fprintf(fff, _("\n 闘技場: 敗北\n", "\n Arena: Defeated\n"));
         } else {
+            constexpr auto mes = _("\n 闘技場: %d回戦で%sの前に敗北\n", "\n Arena: Defeated by %s in the %d%s fight\n");
+            const auto &arena = arena_info[-1 - arena_number];
+            const auto &arena_monrace = monraces_info[arena.r_idx];
 #ifdef JP
-            fprintf(
-                fff, "\n 闘技場: %d回戦で%sの前に敗北\n", -player_ptr->arena_number, monraces_info[arena_info[-1 - player_ptr->arena_number].r_idx].name.data());
+            fprintf(fff, mes, -arena_number, arena_monrace.name.data());
 #else
-            fprintf(fff, "\n Arena: Defeated by %s in the %d%s fight\n", monraces_info[arena_info[-1 - player_ptr->arena_number].r_idx].name.data(),
-                -player_ptr->arena_number, get_ordinal_number_suffix(-player_ptr->arena_number));
+            fprintf(fff, mes, arena_monrace.name.data(), -arena_number, get_ordinal_number_suffix(-arena_number).data());
 #endif
         }
 
@@ -277,23 +282,23 @@ static void dump_aux_arena(PlayerType *player_ptr, FILE *fff)
         return;
     }
 
-    if (player_ptr->arena_number > MAX_ARENA_MONS + 2) {
+    if (arena_number > MAX_ARENA_MONS + 2) {
         fprintf(fff, _("\n 闘技場: 真のチャンピオン\n", "\n Arena: True Champion\n"));
         fprintf(fff, "\n");
         return;
     }
 
-    if (player_ptr->arena_number > MAX_ARENA_MONS - 1) {
+    if (arena_number > MAX_ARENA_MONS - 1) {
         fprintf(fff, _("\n 闘技場: チャンピオン\n", "\n Arena: Champion\n"));
         fprintf(fff, "\n");
         return;
     }
 
+    const auto victory_count = arena_number > MAX_ARENA_MONS ? MAX_ARENA_MONS : arena_number;
 #ifdef JP
-    fprintf(fff, "\n 闘技場: %2d勝\n", (player_ptr->arena_number > MAX_ARENA_MONS ? MAX_ARENA_MONS : player_ptr->arena_number));
+    fprintf(fff, "\n 闘技場: %2d勝\n", victory_count);
 #else
-    fprintf(fff, "\n Arena: %2d Victor%s\n", (player_ptr->arena_number > MAX_ARENA_MONS ? MAX_ARENA_MONS : player_ptr->arena_number),
-        (player_ptr->arena_number > 1) ? "ies" : "y");
+    fprintf(fff, "\n Arena: %2d %s\n", victory_count, (arena_number > 1) ? "Victories" : "Victory");
 #endif
     fprintf(fff, "\n");
 }
@@ -312,26 +317,26 @@ static void dump_aux_monsters(PlayerType *player_ptr, FILE *fff)
 
     /* Count monster kills */
     auto norm_total = 0;
-    for (const auto &[r_idx, r_ref] : monraces_info) {
+    for (const auto &[monrace_id, monrace] : monraces_info) {
         /* Ignore unused index */
-        if (!MonsterRace(r_ref.idx).is_valid() || r_ref.name.empty()) {
+        if (!MonsterRace(monrace_id).is_valid()) {
             continue;
         }
 
-        if (r_ref.kind_flags.has(MonsterKindType::UNIQUE)) {
-            bool dead = (r_ref.max_num == 0);
+        if (monrace.kind_flags.has(MonsterKindType::UNIQUE)) {
+            auto dead = (monrace.max_num == 0);
             if (dead) {
                 norm_total++;
 
                 /* Add a unique monster to the list */
-                who.push_back(r_ref.idx);
+                who.push_back(monrace.idx);
             }
 
             continue;
         }
 
-        if (r_ref.r_pkills > 0) {
-            norm_total += r_ref.r_pkills;
+        if (monrace.r_pkills > 0) {
+            norm_total += monrace.r_pkills;
         }
     }
 
@@ -368,7 +373,7 @@ static void dump_aux_monsters(PlayerType *player_ptr, FILE *fff)
     for (auto it = who.rbegin(); it != who.rend() && std::distance(who.rbegin(), it) < 10; it++) {
         auto *r_ptr = &monraces_info[*it];
         if (r_ptr->defeat_level && r_ptr->defeat_time) {
-            sprintf(buf, _(" - レベル%2d - %d:%02d:%02d", " - level %2d - %d:%02d:%02d"), r_ptr->defeat_level, r_ptr->defeat_time / (60 * 60),
+            strnfmt(buf, sizeof(buf), _(" - レベル%2d - %d:%02d:%02d", " - level %2d - %d:%02d:%02d"), r_ptr->defeat_level, r_ptr->defeat_time / (60 * 60),
                 (r_ptr->defeat_time / 60) % 60, r_ptr->defeat_time % 60);
         } else {
             buf[0] = '\0';
@@ -496,16 +501,17 @@ static void dump_aux_mutations(PlayerType *player_ptr, FILE *fff)
  */
 static void dump_aux_equipment_inventory(PlayerType *player_ptr, FILE *fff)
 {
-    GAME_TEXT o_name[MAX_NLEN];
     if (player_ptr->equip_cnt) {
         fprintf(fff, _("  [キャラクタの装備]\n\n", "  [Character Equipment]\n\n"));
         for (int i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
-            describe_flavor(player_ptr, o_name, &player_ptr->inventory_list[i], 0);
-            if ((((i == INVEN_MAIN_HAND) && can_attack_with_sub_hand(player_ptr)) || ((i == INVEN_SUB_HAND) && can_attack_with_main_hand(player_ptr))) && has_two_handed_weapons(player_ptr)) {
-                strcpy(o_name, _("(武器を両手持ち)", "(wielding with two-hands)"));
+            auto item_name = describe_flavor(player_ptr, &player_ptr->inventory_list[i], 0);
+            auto is_two_handed = ((i == INVEN_MAIN_HAND) && can_attack_with_sub_hand(player_ptr));
+            is_two_handed |= ((i == INVEN_SUB_HAND) && can_attack_with_main_hand(player_ptr));
+            if (is_two_handed && has_two_handed_weapons(player_ptr)) {
+                item_name = _("(武器を両手持ち)", "(wielding with two-hands)");
             }
 
-            fprintf(fff, "%c) %s\n", index_to_label(i), o_name);
+            fprintf(fff, "%c) %s\n", index_to_label(i), item_name.data());
         }
 
         fprintf(fff, "\n\n");
@@ -514,11 +520,12 @@ static void dump_aux_equipment_inventory(PlayerType *player_ptr, FILE *fff)
     fprintf(fff, _("  [キャラクタの持ち物]\n\n", "  [Character Inventory]\n\n"));
 
     for (int i = 0; i < INVEN_PACK; i++) {
-        if (!player_ptr->inventory_list[i].bi_id) {
+        if (!player_ptr->inventory_list[i].is_valid()) {
             break;
         }
-        describe_flavor(player_ptr, o_name, &player_ptr->inventory_list[i], 0);
-        fprintf(fff, "%c) %s\n", index_to_label(i), o_name);
+
+        const auto item_name = describe_flavor(player_ptr, &player_ptr->inventory_list[i], 0);
+        fprintf(fff, "%c) %s\n", index_to_label(i), item_name.data());
     }
 
     fprintf(fff, "\n\n");
@@ -530,26 +537,23 @@ static void dump_aux_equipment_inventory(PlayerType *player_ptr, FILE *fff)
  */
 static void dump_aux_home_museum(PlayerType *player_ptr, FILE *fff)
 {
-    store_type *store_ptr;
-    store_ptr = &town_info[1].store[enum2i(StoreSaleType::HOME)];
-
-    GAME_TEXT o_name[MAX_NLEN];
+    const auto *store_ptr = &towns_info[1].stores[StoreSaleType::HOME];
     if (store_ptr->stock_num) {
         fprintf(fff, _("  [我が家のアイテム]\n", "  [Home Inventory]\n"));
-
-        TERM_LEN x = 1;
-        for (int i = 0; i < store_ptr->stock_num; i++) {
+        auto page = 1;
+        for (auto i = 0; i < store_ptr->stock_num; i++) {
             if ((i % 12) == 0) {
-                fprintf(fff, _("\n ( %d ページ )\n", "\n ( page %d )\n"), x++);
+                fprintf(fff, _("\n ( %d ページ )\n", "\n ( page %d )\n"), page++);
             }
-            describe_flavor(player_ptr, o_name, &store_ptr->stock[i], 0);
-            fprintf(fff, "%c) %s\n", I2A(i % 12), o_name);
+
+            const auto item_name = describe_flavor(player_ptr, &store_ptr->stock[i], 0);
+            fprintf(fff, "%c) %s\n", I2A(i % 12), item_name.data());
         }
 
         fprintf(fff, "\n\n");
     }
 
-    store_ptr = &town_info[1].store[enum2i(StoreSaleType::MUSEUM)];
+    store_ptr = &towns_info[1].stores[StoreSaleType::MUSEUM];
 
     if (store_ptr->stock_num == 0) {
         return;
@@ -557,13 +561,14 @@ static void dump_aux_home_museum(PlayerType *player_ptr, FILE *fff)
 
     fprintf(fff, _("  [博物館のアイテム]\n", "  [Museum]\n"));
 
-    TERM_LEN x = 1;
-    for (int i = 0; i < store_ptr->stock_num; i++) {
+    auto page = 1;
+    for (auto i = 0; i < store_ptr->stock_num; i++) {
         if ((i % 12) == 0) {
-            fprintf(fff, _("\n ( %d ページ )\n", "\n ( page %d )\n"), x++);
+            fprintf(fff, _("\n ( %d ページ )\n", "\n ( page %d )\n"), page++);
         }
-        describe_flavor(player_ptr, o_name, &store_ptr->stock[i], 0);
-        fprintf(fff, "%c) %s\n", I2A(i % 12), o_name);
+
+        const auto item_name = describe_flavor(player_ptr, &store_ptr->stock[i], 0);
+        fprintf(fff, "%c) %s\n", I2A(i % 12), item_name.data());
     }
 
     fprintf(fff, "\n\n");
@@ -573,11 +578,26 @@ static void dump_aux_home_museum(PlayerType *player_ptr, FILE *fff)
  * @brief チェックサム情報を出力 / Get check sum in string form
  * @return チェックサム情報の文字列
  */
-static concptr get_check_sum(void)
+static std::string get_check_sum(void)
 {
-    return format("%02x%02x%02x%02x%02x%02x%02x%02x%02x", terrains_header.checksum, baseitems_header.checksum,
-        artifacts_header.checksum, egos_header.checksum, monraces_header.checksum, dungeons_header.checksum,
-        class_magics_header.checksum, class_skills_header.checksum, vaults_header.checksum);
+    static constexpr auto headers = {
+        &artifacts_header,
+        &baseitems_header,
+        &class_magics_header,
+        &class_skills_header,
+        &dungeons_header,
+        &egos_header,
+        &monraces_header,
+        &terrains_header,
+        &vaults_header,
+    };
+
+    util::SHA256 sha256;
+    for (const auto *header : headers) {
+        sha256.update(header->digest.data(), header->digest.size());
+    }
+
+    return util::to_string(sha256.digest());
 }
 
 /*!
@@ -589,9 +609,9 @@ static concptr get_check_sum(void)
  */
 void make_character_dump(PlayerType *player_ptr, FILE *fff)
 {
-    char title[127];
-    put_version(title);
-    fprintf(fff, _("  [%s キャラクタ情報]\n\n", "  [%s Character Dump]\n\n"), title);
+    TermCenteredOffsetSetter tos(MAIN_TERM_MIN_COLS, std::nullopt);
+
+    fprintf(fff, _("  [%s キャラクタ情報]\n\n", "  [%s Character Dump]\n\n"), get_version().data());
 
     dump_aux_player_status(player_ptr, fff);
     dump_aux_last_message(player_ptr, fff);
@@ -610,5 +630,7 @@ void make_character_dump(PlayerType *player_ptr, FILE *fff)
     dump_aux_equipment_inventory(player_ptr, fff);
     dump_aux_home_museum(player_ptr, fff);
 
-    fprintf(fff, _("  [チェックサム: \"%s\"]\n\n", "  [Check Sum: \"%s\"]\n\n"), get_check_sum());
+    // ダンプの幅をはみ出さないように48文字目以降を切り捨てる
+    const auto checksum = get_check_sum().erase(48);
+    fprintf(fff, _("  [チェックサム: \"%s\"]\n\n", "  [Check Sum: \"%s\"]\n\n"), checksum.data());
 }

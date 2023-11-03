@@ -1,4 +1,4 @@
-﻿#include "view/display-inventory.h"
+#include "view/display-inventory.h"
 #include "flavor/flavor-describer.h"
 #include "game-option/special-options.h"
 #include "game-option/text-display-options.h"
@@ -15,6 +15,8 @@
 #include "term/gameterm.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
+#include "util/string-processor.h"
 
 /*!
  * @brief 所持アイテムの表示を行う /
@@ -29,21 +31,19 @@ COMMAND_CODE show_inventory(PlayerType *player_ptr, int target_item, BIT_FLAGS m
     COMMAND_CODE i;
     int k, l, z = 0;
     ItemEntity *o_ptr;
-    GAME_TEXT o_name[MAX_NLEN];
     char tmp_val[80];
-    COMMAND_CODE out_index[23];
-    TERM_COLOR out_color[23];
-    char out_desc[23][MAX_NLEN];
+    COMMAND_CODE out_index[23]{};
+    TERM_COLOR out_color[23]{};
+    std::array<std::string, 23> out_desc{};
     COMMAND_CODE target_item_label = 0;
     char inven_label[52 + 1];
 
-    int col = command_gap;
-    TERM_LEN wid, hgt;
-    term_get_size(&wid, &hgt);
-    int len = wid - col - 1;
+    auto col = command_gap;
+    const auto &[wid, hgt] = term_get_size();
+    auto len = wid - col - 1;
     for (i = 0; i < INVEN_PACK; i++) {
         o_ptr = &player_ptr->inventory_list[i];
-        if (!o_ptr->bi_id) {
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
@@ -57,15 +57,14 @@ COMMAND_CODE show_inventory(PlayerType *player_ptr, int target_item, BIT_FLAGS m
             continue;
         }
 
-        describe_flavor(player_ptr, o_name, o_ptr, 0);
         out_index[k] = i;
         out_color[k] = tval_to_attr[enum2i(o_ptr->bi_key.tval()) % 128];
         if (o_ptr->timeout) {
             out_color[k] = TERM_L_DARK;
         }
 
-        (void)strcpy(out_desc[k], o_name);
-        l = strlen(out_desc[k]) + 5;
+        out_desc[k] = describe_flavor(player_ptr, o_ptr, 0);
+        l = out_desc[k].length() + 5;
         if (show_weights) {
             l += 9;
         }
@@ -93,15 +92,15 @@ COMMAND_CODE show_inventory(PlayerType *player_ptr, int target_item, BIT_FLAGS m
         prt("", j + 1, col ? col - 2 : col);
         if (use_menu && target_item) {
             if (j == (target_item - 1)) {
-                strcpy(tmp_val, _("》", "> "));
+                angband_strcpy(tmp_val, _("》", "> "), sizeof(tmp_val));
                 target_item_label = i;
             } else {
-                strcpy(tmp_val, "  ");
+                angband_strcpy(tmp_val, "  ", sizeof(tmp_val));
             }
         } else if (i <= INVEN_PACK) {
-            sprintf(tmp_val, "%c)", inven_label[i]);
+            strnfmt(tmp_val, sizeof(tmp_val), "%c)", inven_label[i]);
         } else {
-            sprintf(tmp_val, "%c)", index_to_label(i));
+            strnfmt(tmp_val, sizeof(tmp_val), "%c)", index_to_label(i));
         }
 
         put_str(tmp_val, j + 1, col);
@@ -120,7 +119,7 @@ COMMAND_CODE show_inventory(PlayerType *player_ptr, int target_item, BIT_FLAGS m
         c_put_str(out_color[j], out_desc[j], j + 1, cur_col);
         if (show_weights) {
             int wgt = o_ptr->weight * o_ptr->number;
-            (void)sprintf(tmp_val, _("%3d.%1d kg", "%3d.%1d lb"), _(lb_to_kg_integer(wgt), wgt / 10), _(lb_to_kg_fraction(wgt), wgt % 10));
+            strnfmt(tmp_val, sizeof(tmp_val), _("%3d.%1d kg", "%3d.%1d lb"), _(lb_to_kg_integer(wgt), wgt / 10), _(lb_to_kg_fraction(wgt), wgt % 10));
             prt(tmp_val, j + 1, wid - 9);
         }
     }
@@ -139,21 +138,17 @@ COMMAND_CODE show_inventory(PlayerType *player_ptr, int target_item, BIT_FLAGS m
  */
 void display_inventory(PlayerType *player_ptr, const ItemTester &item_tester)
 {
-    int i, n, z = 0;
+    int i, z = 0;
     TERM_COLOR attr = TERM_WHITE;
     char tmp_val[80];
-    GAME_TEXT o_name[MAX_NLEN];
-    TERM_LEN wid, hgt;
-
     if (!player_ptr || !player_ptr->inventory_list) {
         return;
     }
 
-    term_get_size(&wid, &hgt);
-
+    const auto &[wid, hgt] = term_get_size();
     for (i = 0; i < INVEN_PACK; i++) {
         auto o_ptr = &player_ptr->inventory_list[i];
-        if (!o_ptr->bi_id) {
+        if (!o_ptr->is_valid()) {
             continue;
         }
         z = i + 1;
@@ -166,17 +161,16 @@ void display_inventory(PlayerType *player_ptr, const ItemTester &item_tester)
 
         auto o_ptr = &player_ptr->inventory_list[i];
         auto do_disp = item_tester.okay(o_ptr);
-        strcpy(tmp_val, "   ");
+        angband_strcpy(tmp_val, "   ", sizeof(tmp_val));
         if (do_disp) {
             tmp_val[0] = index_to_label(i);
             tmp_val[1] = ')';
         }
 
         int cur_col = 3;
-        term_erase(cur_col, i, 255);
+        term_erase(cur_col, i);
         term_putstr(0, i, cur_col, TERM_WHITE, tmp_val);
-        describe_flavor(player_ptr, o_name, o_ptr, 0);
-        n = strlen(o_name);
+        const auto item_name = describe_flavor(player_ptr, o_ptr, 0);
         attr = tval_to_attr[enum2i(o_ptr->bi_key.tval()) % 128];
         if (o_ptr->timeout) {
             attr = TERM_L_DARK;
@@ -193,16 +187,18 @@ void display_inventory(PlayerType *player_ptr, const ItemTester &item_tester)
             cur_col += 2;
         }
 
-        term_putstr(cur_col, i, n, attr, o_name);
+        term_putstr(cur_col, i, item_name.length(), attr, item_name);
 
         if (show_weights) {
             int wgt = o_ptr->weight * o_ptr->number;
-            sprintf(tmp_val, _("%3d.%1d kg", "%3d.%1d lb"), _(lb_to_kg_integer(wgt), wgt / 10), _(lb_to_kg_fraction(wgt), wgt % 10));
+            strnfmt(tmp_val, sizeof(tmp_val), _("%3d.%1d kg", "%3d.%1d lb"),
+                _(lb_to_kg_integer(wgt), wgt / 10),
+                _(lb_to_kg_fraction(wgt), wgt % 10));
             prt(tmp_val, i, wid - 9);
         }
     }
 
     for (i = z; i < hgt; i++) {
-        term_erase(0, i, 255);
+        term_erase(0, i);
     }
 }

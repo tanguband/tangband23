@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief モンスター同士が乱闘する処理
  * @date 2020/05/23
  * @author Hourier
@@ -8,7 +8,6 @@
 #include "combat/attack-accuracy.h"
 #include "combat/hallucination-attacks-table.h"
 #include "core/disturbance.h"
-#include "core/player-redraw-types.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
@@ -36,11 +35,13 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
+#include "util/string-processor.h"
 #include "view/display-messages.h"
 
 static void heal_monster_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 {
-    if (!monster_living(mam_ptr->t_ptr->r_idx) || (mam_ptr->damage <= 2)) {
+    if (!mam_ptr->t_ptr->has_living_flag() || (mam_ptr->damage <= 2)) {
         return;
     }
 
@@ -50,22 +51,23 @@ static void heal_monster_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
         mam_ptr->m_ptr->hp = mam_ptr->m_ptr->maxhp;
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     if (player_ptr->health_who == mam_ptr->m_idx) {
-        player_ptr->redraw |= (PR_HEALTH);
+        rfu.set_flag(MainWindowRedrawingFlag::HEALTH);
     }
 
     if (player_ptr->riding == mam_ptr->m_idx) {
-        player_ptr->redraw |= (PR_UHEALTH);
+        rfu.set_flag(MainWindowRedrawingFlag::UHEALTH);
     }
 
     if (mam_ptr->see_m && did_heal) {
-        msg_format(_("%sは体力を回復したようだ。", "%^s appears healthier."), mam_ptr->m_name);
+        msg_format(_("%sは体力を回復したようだ。", "%s^ appears healthier."), mam_ptr->m_name);
     }
 }
 
 static void process_blow_effect(PlayerType *player_ptr, mam_type *mam_ptr)
 {
-    auto *r_ptr = &monraces_info[mam_ptr->m_ptr->r_idx];
+    auto *r_ptr = &mam_ptr->m_ptr->get_monrace();
     switch (mam_ptr->attribute) {
     case BlowEffectType::FEAR:
         project(player_ptr, mam_ptr->m_idx, 0, mam_ptr->t_ptr->fy, mam_ptr->t_ptr->fx, mam_ptr->damage,
@@ -85,8 +87,8 @@ static void process_blow_effect(PlayerType *player_ptr, mam_type *mam_ptr)
 
 static void aura_fire_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 {
-    auto *r_ptr = &monraces_info[mam_ptr->m_ptr->r_idx];
-    MonsterRaceInfo *tr_ptr = &monraces_info[mam_ptr->t_ptr->r_idx];
+    auto *r_ptr = &mam_ptr->m_ptr->get_monrace();
+    auto *tr_ptr = &mam_ptr->t_ptr->get_monrace();
     if (tr_ptr->aura_flags.has_not(MonsterAuraType::FIRE) || !MonsterRace(mam_ptr->m_ptr->r_idx).is_valid()) {
         return;
     }
@@ -97,65 +99,70 @@ static void aura_fire_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
     }
 
     if (mam_ptr->see_either) {
-        msg_format(_("%^sは突然熱くなった！", "%^s is suddenly very hot!"), mam_ptr->m_name);
+        msg_format(_("%s^は突然熱くなった！", "%s^ is suddenly very hot!"), mam_ptr->m_name);
     }
 
     if (mam_ptr->m_ptr->ml && is_original_ap_and_seen(player_ptr, mam_ptr->t_ptr)) {
         tr_ptr->aura_flags.set(MonsterAuraType::FIRE);
     }
 
-    project(player_ptr, mam_ptr->t_idx, 0, mam_ptr->m_ptr->fy, mam_ptr->m_ptr->fx, damroll(1 + ((tr_ptr->level) / 26), 1 + ((tr_ptr->level) / 17)), AttributeType::FIRE,
-        PROJECT_KILL | PROJECT_STOP | PROJECT_AIMED);
+    const auto dam = damroll(1 + ((tr_ptr->level) / 26), 1 + ((tr_ptr->level) / 17));
+    constexpr auto flags = PROJECT_KILL | PROJECT_STOP | PROJECT_AIMED;
+    project(player_ptr, mam_ptr->t_idx, 0, mam_ptr->m_ptr->fy, mam_ptr->m_ptr->fx, dam, AttributeType::FIRE, flags);
 }
 
 static void aura_cold_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 {
-    auto *r_ptr = &monraces_info[mam_ptr->m_ptr->r_idx];
-    MonsterRaceInfo *tr_ptr = &monraces_info[mam_ptr->t_ptr->r_idx];
-    if (tr_ptr->aura_flags.has_not(MonsterAuraType::COLD) || !MonsterRace(mam_ptr->m_ptr->r_idx).is_valid()) {
+    const auto *m_ptr = mam_ptr->m_ptr;
+    auto *r_ptr = &m_ptr->get_monrace();
+    auto *tr_ptr = &mam_ptr->t_ptr->get_monrace();
+    if (tr_ptr->aura_flags.has_not(MonsterAuraType::COLD) || !MonsterRace(m_ptr->r_idx).is_valid()) {
         return;
     }
 
-    if (r_ptr->resistance_flags.has_any_of(RFR_EFF_IM_COLD_MASK) && is_original_ap_and_seen(player_ptr, mam_ptr->m_ptr)) {
+    if (r_ptr->resistance_flags.has_any_of(RFR_EFF_IM_COLD_MASK) && is_original_ap_and_seen(player_ptr, m_ptr)) {
         r_ptr->r_resistance_flags.set(r_ptr->resistance_flags & RFR_EFF_IM_COLD_MASK);
         return;
     }
 
     if (mam_ptr->see_either) {
-        msg_format(_("%^sは突然寒くなった！", "%^s is suddenly very cold!"), mam_ptr->m_name);
+        msg_format(_("%s^は突然寒くなった！", "%s^ is suddenly very cold!"), mam_ptr->m_name);
     }
 
-    if (mam_ptr->m_ptr->ml && is_original_ap_and_seen(player_ptr, mam_ptr->t_ptr)) {
+    if (m_ptr->ml && is_original_ap_and_seen(player_ptr, mam_ptr->t_ptr)) {
         tr_ptr->aura_flags.set(MonsterAuraType::COLD);
     }
 
-    project(player_ptr, mam_ptr->t_idx, 0, mam_ptr->m_ptr->fy, mam_ptr->m_ptr->fx, damroll(1 + ((tr_ptr->level) / 26), 1 + ((tr_ptr->level) / 17)), AttributeType::COLD,
-        PROJECT_KILL | PROJECT_STOP | PROJECT_AIMED);
+    const auto dam = damroll(1 + ((tr_ptr->level) / 26), 1 + ((tr_ptr->level) / 17));
+    constexpr auto flags = PROJECT_KILL | PROJECT_STOP | PROJECT_AIMED;
+    project(player_ptr, mam_ptr->t_idx, 0, m_ptr->fy, m_ptr->fx, dam, AttributeType::COLD, flags);
 }
 
 static void aura_elec_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 {
-    auto *r_ptr = &monraces_info[mam_ptr->m_ptr->r_idx];
-    MonsterRaceInfo *tr_ptr = &monraces_info[mam_ptr->t_ptr->r_idx];
-    if (tr_ptr->aura_flags.has_not(MonsterAuraType::ELEC) || !MonsterRace(mam_ptr->m_ptr->r_idx).is_valid()) {
+    const auto *m_ptr = mam_ptr->m_ptr;
+    auto *r_ptr = &m_ptr->get_monrace();
+    auto *tr_ptr = &mam_ptr->t_ptr->get_monrace();
+    if (tr_ptr->aura_flags.has_not(MonsterAuraType::ELEC) || !MonsterRace(m_ptr->r_idx).is_valid()) {
         return;
     }
 
-    if (r_ptr->resistance_flags.has_any_of(RFR_EFF_IM_ELEC_MASK) && is_original_ap_and_seen(player_ptr, mam_ptr->m_ptr)) {
+    if (r_ptr->resistance_flags.has_any_of(RFR_EFF_IM_ELEC_MASK) && is_original_ap_and_seen(player_ptr, m_ptr)) {
         r_ptr->r_resistance_flags.set(r_ptr->resistance_flags & RFR_EFF_IM_ELEC_MASK);
         return;
     }
 
     if (mam_ptr->see_either) {
-        msg_format(_("%^sは電撃を食らった！", "%^s gets zapped!"), mam_ptr->m_name);
+        msg_format(_("%s^は電撃を食らった！", "%s^ gets zapped!"), mam_ptr->m_name);
     }
 
-    if (mam_ptr->m_ptr->ml && is_original_ap_and_seen(player_ptr, mam_ptr->t_ptr)) {
+    if (m_ptr->ml && is_original_ap_and_seen(player_ptr, mam_ptr->t_ptr)) {
         tr_ptr->aura_flags.set(MonsterAuraType::ELEC);
     }
 
-    project(player_ptr, mam_ptr->t_idx, 0, mam_ptr->m_ptr->fy, mam_ptr->m_ptr->fx, damroll(1 + ((tr_ptr->level) / 26), 1 + ((tr_ptr->level) / 17)), AttributeType::ELEC,
-        PROJECT_KILL | PROJECT_STOP | PROJECT_AIMED);
+    const auto dam = damroll(1 + ((tr_ptr->level) / 26), 1 + ((tr_ptr->level) / 17));
+    constexpr auto flags = PROJECT_KILL | PROJECT_STOP | PROJECT_AIMED;
+    project(player_ptr, mam_ptr->t_idx, 0, m_ptr->fy, m_ptr->fx, dam, AttributeType::ELEC, flags);
 }
 
 static bool check_same_monster(PlayerType *player_ptr, mam_type *mam_ptr)
@@ -164,12 +171,12 @@ static bool check_same_monster(PlayerType *player_ptr, mam_type *mam_ptr)
         return false;
     }
 
-    auto *r_ptr = &monraces_info[mam_ptr->m_ptr->r_idx];
+    auto *r_ptr = &mam_ptr->m_ptr->get_monrace();
     if (r_ptr->behavior_flags.has(MonsterBehaviorType::NEVER_BLOW)) {
         return false;
     }
 
-    if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::NO_MELEE)) {
+    if (player_ptr->current_floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::NO_MELEE)) {
         return false;
     }
 
@@ -182,12 +189,13 @@ static void redraw_health_bar(PlayerType *player_ptr, mam_type *mam_ptr)
         return;
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     if (player_ptr->health_who == mam_ptr->t_idx) {
-        player_ptr->redraw |= (PR_HEALTH);
+        rfu.set_flag(MainWindowRedrawingFlag::HEALTH);
     }
 
     if (player_ptr->riding == mam_ptr->t_idx) {
-        player_ptr->redraw |= (PR_UHEALTH);
+        rfu.set_flag(MainWindowRedrawingFlag::UHEALTH);
     }
 }
 
@@ -200,20 +208,20 @@ static void describe_silly_melee(mam_type *mam_ptr)
 
 #ifdef JP
     if (mam_ptr->do_silly_attack) {
-        mam_ptr->act = silly_attacks2[randint0(MAX_SILLY_ATTACK)];
+        mam_ptr->act = rand_choice(silly_attacks2);
     }
 
-    strfmt(temp, mam_ptr->act, mam_ptr->t_name);
-    msg_format("%^sは%s", mam_ptr->m_name, temp);
+    strnfmt(temp, sizeof(temp), mam_ptr->act, mam_ptr->t_name);
+    msg_format("%s^は%s", mam_ptr->m_name, temp);
 #else
     if (mam_ptr->do_silly_attack) {
-        mam_ptr->act = silly_attacks[randint0(MAX_SILLY_ATTACK)];
-        strfmt(temp, "%s %s.", mam_ptr->act, mam_ptr->t_name);
+        mam_ptr->act = rand_choice(silly_attacks);
+        strnfmt(temp, sizeof(temp), "%s %s.", mam_ptr->act, mam_ptr->t_name);
     } else {
-        strfmt(temp, mam_ptr->act, mam_ptr->t_name);
+        strnfmt(temp, sizeof(temp), mam_ptr->act, mam_ptr->t_name);
     }
 
-    msg_format("%^s %s", mam_ptr->m_name, temp);
+    msg_format("%s^ %s", mam_ptr->m_name, temp);
 #endif
 }
 
@@ -240,7 +248,8 @@ static void process_monster_attack_effect(PlayerType *player_ptr, mam_type *mam_
 
 static void process_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 {
-    if (mam_ptr->effect != RaceBlowEffectType::NONE && !check_hit_from_monster_to_monster(mam_ptr->power, mam_ptr->rlev, mam_ptr->ac, mam_ptr->m_ptr->get_remaining_stun())) {
+    const auto remaining_stun = mam_ptr->m_ptr->get_remaining_stun();
+    if (mam_ptr->effect != RaceBlowEffectType::NONE && !check_hit_from_monster_to_monster(mam_ptr->power, mam_ptr->rlev, mam_ptr->ac, remaining_stun)) {
         describe_monster_missed_monster(player_ptr, mam_ptr);
         return;
     }
@@ -297,14 +306,20 @@ static void explode_monster_by_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 void repeat_melee(PlayerType *player_ptr, mam_type *mam_ptr)
 {
     const auto *m_ptr = mam_ptr->m_ptr;
-    auto *r_ptr = &monraces_info[m_ptr->r_idx];
+    auto *r_ptr = &m_ptr->get_monrace();
     for (int ap_cnt = 0; ap_cnt < MAX_NUM_BLOWS; ap_cnt++) {
-        mam_ptr->effect = r_ptr->blow[ap_cnt].effect;
-        mam_ptr->method = r_ptr->blow[ap_cnt].method;
-        mam_ptr->d_dice = r_ptr->blow[ap_cnt].d_dice;
-        mam_ptr->d_side = r_ptr->blow[ap_cnt].d_side;
+        mam_ptr->effect = r_ptr->blows[ap_cnt].effect;
+        mam_ptr->method = r_ptr->blows[ap_cnt].method;
+        mam_ptr->d_dice = r_ptr->blows[ap_cnt].d_dice;
+        mam_ptr->d_side = r_ptr->blows[ap_cnt].d_side;
 
-        if (!m_ptr->is_valid() || (mam_ptr->t_ptr->fx != mam_ptr->x_saver) || (mam_ptr->t_ptr->fy != mam_ptr->y_saver) || mam_ptr->method == RaceBlowMethodType::NONE) {
+        if (!m_ptr->is_valid()) {
+            break;
+        }
+
+        const auto x_saver = mam_ptr->t_ptr->fx != mam_ptr->x_saver;
+        const auto y_saver = mam_ptr->t_ptr->fy != mam_ptr->y_saver;
+        if (x_saver || y_saver || mam_ptr->method == RaceBlowMethodType::NONE) {
             break;
         }
 
@@ -343,8 +358,8 @@ bool monst_attack_monst(PlayerType *player_ptr, MONSTER_IDX m_idx, MONSTER_IDX t
         return false;
     }
 
-    monster_desc(player_ptr, mam_ptr->m_name, mam_ptr->m_ptr, 0);
-    monster_desc(player_ptr, mam_ptr->t_name, mam_ptr->t_ptr, 0);
+    angband_strcpy(mam_ptr->m_name, monster_desc(player_ptr, mam_ptr->m_ptr, 0), sizeof(mam_ptr->m_name));
+    angband_strcpy(mam_ptr->t_name, monster_desc(player_ptr, mam_ptr->t_ptr, 0), sizeof(mam_ptr->t_name));
     if (!mam_ptr->see_either && mam_ptr->known) {
         player_ptr->current_floor_ptr->monster_noise = true;
     }

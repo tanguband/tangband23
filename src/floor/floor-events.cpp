@@ -1,8 +1,6 @@
-﻿#include "floor/floor-events.h"
+#include "floor/floor-events.h"
 #include "cmd-io/cmd-dump.h"
 #include "core/disturbance.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/window-redrawer.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "dungeon/quest.h"
@@ -31,6 +29,7 @@
 #include "sv-definition/sv-amulet-types.h"
 #include "sv-definition/sv-protector-types.h"
 #include "sv-definition/sv-ring-types.h"
+#include "system/angband-system.h"
 #include "system/baseitem-info.h"
 #include "system/dungeon-info.h"
 #include "system/floor-type-definition.h"
@@ -39,68 +38,84 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "util/bit-flags-calculator.h"
 #include "view/display-messages.h"
 #include "world/world.h"
 
+static void update_sun_light(PlayerType *player_ptr)
+{
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+        StatusRecalculatingFlag::MONSTER_LITE,
+    };
+    rfu.set_flags(flags_srf);
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
+    static constexpr auto flags = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+    };
+    rfu.set_flags(flags);
+    if ((player_ptr->current_floor_ptr->grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) != 0) {
+        set_superstealth(player_ptr, false);
+    }
+}
+
 void day_break(PlayerType *player_ptr)
 {
     msg_print(_("夜が明けた。", "The sun has risen."));
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if (!player_ptr->wild_mode) {
-        for (POSITION y = 0; y < floor_ptr->height; y++) {
-            for (POSITION x = 0; x < floor_ptr->width; x++) {
-                auto *g_ptr = &floor_ptr->grid_array[y][x];
-                g_ptr->info |= CAVE_GLOW;
-                if (view_perma_grids) {
-                    g_ptr->info |= CAVE_MARK;
-                }
+    if (player_ptr->wild_mode) {
+        update_sun_light(player_ptr);
+        return;
+    }
 
-                note_spot(player_ptr, y, x);
+    for (auto y = 0; y < floor_ptr->height; y++) {
+        for (auto x = 0; x < floor_ptr->width; x++) {
+            auto *g_ptr = &floor_ptr->grid_array[y][x];
+            g_ptr->info |= CAVE_GLOW;
+            if (view_perma_grids) {
+                g_ptr->info |= CAVE_MARK;
             }
+
+            note_spot(player_ptr, y, x);
         }
     }
 
-    player_ptr->update |= PU_MONSTERS | PU_MON_LITE;
-    player_ptr->redraw |= PR_MAP;
-    player_ptr->window_flags |= PW_OVERHEAD | PW_DUNGEON;
-    if ((floor_ptr->grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) != 0) {
-        set_superstealth(player_ptr, false);
-    }
+    update_sun_light(player_ptr);
 }
 
 void night_falls(PlayerType *player_ptr)
 {
     msg_print(_("日が沈んだ。", "The sun has fallen."));
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if (!player_ptr->wild_mode) {
-        for (POSITION y = 0; y < floor_ptr->height; y++) {
-            for (POSITION x = 0; x < floor_ptr->width; x++) {
-                auto *g_ptr = &floor_ptr->grid_array[y][x];
-                auto *f_ptr = &terrains_info[g_ptr->get_feat_mimic()];
-                if (g_ptr->is_mirror() || f_ptr->flags.has(TerrainCharacteristics::QUEST_ENTER) || f_ptr->flags.has(TerrainCharacteristics::ENTRANCE)) {
-                    continue;
-                }
+    if (player_ptr->wild_mode) {
+        update_sun_light(player_ptr);
+        return;
+    }
 
-                g_ptr->info &= ~(CAVE_GLOW);
-                if (f_ptr->flags.has_not(TerrainCharacteristics::REMEMBER)) {
-                    g_ptr->info &= ~(CAVE_MARK);
-                    note_spot(player_ptr, y, x);
-                }
+    for (auto y = 0; y < floor_ptr->height; y++) {
+        for (auto x = 0; x < floor_ptr->width; x++) {
+            auto *g_ptr = &floor_ptr->grid_array[y][x];
+            auto *f_ptr = &terrains_info[g_ptr->get_feat_mimic()];
+            using Tc = TerrainCharacteristics;
+            if (g_ptr->is_mirror() || f_ptr->flags.has(Tc::QUEST_ENTER) || f_ptr->flags.has(Tc::ENTRANCE)) {
+                continue;
             }
 
-            glow_deep_lava_and_bldg(player_ptr);
+            g_ptr->info &= ~(CAVE_GLOW);
+            if (f_ptr->flags.has_not(Tc::REMEMBER)) {
+                g_ptr->info &= ~(CAVE_MARK);
+                note_spot(player_ptr, y, x);
+            }
         }
+
+        glow_deep_lava_and_bldg(player_ptr);
     }
 
-    player_ptr->update |= PU_MONSTERS | PU_MON_LITE;
-    player_ptr->redraw |= PR_MAP;
-    player_ptr->window_flags |= PW_OVERHEAD | PW_DUNGEON;
-
-    if ((floor_ptr->grid_array[player_ptr->y][player_ptr->x].info & CAVE_GLOW) != 0) {
-        set_superstealth(player_ptr, false);
-    }
+    update_sun_light(player_ptr);
 }
 
 /*!
@@ -133,7 +148,7 @@ static byte get_dungeon_feeling(PlayerType *player_ptr)
             continue;
         }
 
-        r_ptr = &monraces_info[m_ptr->r_idx];
+        r_ptr = &m_ptr->get_monrace();
         if (r_ptr->kind_flags.has(MonsterKindType::UNIQUE)) {
             if (r_ptr->level + 10 > floor_ptr->dun_level) {
                 delta += (r_ptr->level + 10 - floor_ptr->dun_level) * 2 * base;
@@ -161,11 +176,11 @@ static byte get_dungeon_feeling(PlayerType *player_ptr)
         }
 
         if (o_ptr->is_ego()) {
-            auto *e_ptr = &egos_info[o_ptr->ego_idx];
-            delta += e_ptr->rating * base;
+            const auto &ego = o_ptr->get_ego();
+            delta += ego.rating * base;
         }
 
-        if (o_ptr->is_artifact()) {
+        if (o_ptr->is_fixed_or_random_artifact()) {
             PRICE cost = object_value_real(o_ptr);
             delta += 10 * base;
             if (cost > 10000L) {
@@ -217,7 +232,7 @@ static byte get_dungeon_feeling(PlayerType *player_ptr)
             delta += 15 * base;
         }
 
-        const auto &baseitem = baseitems_info[o_ptr->bi_id];
+        const auto &baseitem = o_ptr->get_baseitem();
         if (!o_ptr->is_cursed() && !o_ptr->is_broken() && baseitem.level > floor_ptr->dun_level) {
             delta += (baseitem.level - floor_ptr->dun_level) * base;
         }
@@ -266,21 +281,21 @@ static byte get_dungeon_feeling(PlayerType *player_ptr)
  */
 void update_dungeon_feeling(PlayerType *player_ptr)
 {
-    auto *floor_ptr = player_ptr->current_floor_ptr;
-    if (!floor_ptr->dun_level) {
+    const auto &floor = *player_ptr->current_floor_ptr;
+    if (!floor.dun_level) {
         return;
     }
 
-    if (player_ptr->phase_out) {
+    if (AngbandSystem::get_instance().is_phase_out()) {
         return;
     }
 
-    int delay = std::max(10, 150 - player_ptr->skill_fos) * (150 - floor_ptr->dun_level) * TURNS_PER_TICK / 100;
+    int delay = std::max(10, 150 - player_ptr->skill_fos) * (150 - floor.dun_level) * TURNS_PER_TICK / 100;
     if (w_ptr->game_turn < player_ptr->feeling_turn + delay && !cheat_xtra) {
         return;
     }
 
-    auto quest_num = quest_number(player_ptr, floor_ptr->dun_level);
+    auto quest_num = floor.get_quest_id();
     const auto &quest_list = QuestList::get_instance();
 
     auto dungeon_quest = (quest_num == QuestId::OBERON);
@@ -288,7 +303,7 @@ void update_dungeon_feeling(PlayerType *player_ptr)
     dungeon_quest |= !(quest_list[quest_num].flags & QUEST_FLAG_PRESET);
 
     auto feeling_quest = inside_quest(quest_num);
-    feeling_quest &= quest_type::is_fixed(quest_num);
+    feeling_quest &= QuestType::is_fixed(quest_num);
     feeling_quest &= !dungeon_quest;
     if (feeling_quest) {
         return;
@@ -302,7 +317,7 @@ void update_dungeon_feeling(PlayerType *player_ptr)
     player_ptr->feeling = new_feeling;
     do_cmd_feeling(player_ptr);
     select_floor_music(player_ptr);
-    player_ptr->redraw |= PR_DEPTH;
+    RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::DEPTH);
     if (disturb_minor) {
         disturb(player_ptr, false, false);
     }
@@ -313,11 +328,11 @@ void update_dungeon_feeling(PlayerType *player_ptr)
  */
 void glow_deep_lava_and_bldg(PlayerType *player_ptr)
 {
-    if (dungeons_info[player_ptr->dungeon_idx].flags.has(DungeonFeatureType::DARKNESS)) {
+    auto *floor_ptr = player_ptr->current_floor_ptr;
+    if (floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::DARKNESS)) {
         return;
     }
 
-    auto *floor_ptr = player_ptr->current_floor_ptr;
     for (POSITION y = 0; y < floor_ptr->height; y++) {
         for (POSITION x = 0; x < floor_ptr->width; x++) {
             grid_type *g_ptr;
@@ -338,8 +353,14 @@ void glow_deep_lava_and_bldg(PlayerType *player_ptr)
         }
     }
 
-    player_ptr->update |= PU_VIEW | PU_LITE | PU_MON_LITE;
-    player_ptr->redraw |= PR_MAP;
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::VIEW,
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::MONSTER_LITE,
+    };
+    rfu.set_flags(flags_srf);
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
 }
 
 /*

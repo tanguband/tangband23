@@ -1,10 +1,11 @@
-﻿#pragma once
+#pragma once
 
 #include "monster-attack/monster-attack-effect.h"
 #include "monster-attack/monster-attack-table.h"
 #include "monster-race/monster-aura-types.h"
 #include "monster-race/race-ability-flags.h"
 #include "monster-race/race-behavior-flags.h"
+#include "monster-race/race-brightness-flags.h"
 #include "monster-race/race-drop-flags.h"
 #include "monster-race/race-feature-flags.h"
 #include "monster-race/race-flags-resistance.h"
@@ -29,7 +30,6 @@ extern const std::unordered_map<std::string_view, RaceBlowMethodType> r_info_blo
 extern const std::unordered_map<std::string_view, RaceBlowEffectType> r_info_blow_effect;
 extern const std::unordered_map<std::string_view, race_flags1> r_info_flags1;
 extern const std::unordered_map<std::string_view, race_flags2> r_info_flags2;
-extern const std::unordered_map<std::string_view, race_flags3> r_info_flags3;
 extern const std::unordered_map<std::string_view, MonsterAbilityType> r_info_ability_flags;
 extern const std::unordered_map<std::string_view, race_flags7> r_info_flags7;
 extern const std::unordered_map<std::string_view, race_flags8> r_info_flags8;
@@ -43,3 +43,4 @@ extern const std::unordered_map<std::string_view, MonsterWildernessType> r_info_
 extern const std::unordered_map<std::string_view, MonsterFeatureType> r_info_feature_flags;
 extern const std::unordered_map<std::string_view, MonsterPopulationType> r_info_population_flags;
 extern const std::unordered_map<std::string_view, MonsterSpeakType> r_info_speak_flags;
+extern const std::unordered_map<std::string_view, MonsterBrightnessType> r_info_brightness_flags;

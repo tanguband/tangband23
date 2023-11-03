@@ -1,4 +1,4 @@
-﻿/*
+/*
  * @file item-entity.cpp
  * @brief アイテム実体とそれにまつわる判定処理群
  * @author Hourier
@@ -12,13 +12,13 @@
 #include "monster-race/monster-race.h"
 #include "object-enchant/object-curse.h"
 #include "object-enchant/special-object-flags.h"
-#include "object/object-flags.h"
 #include "object/object-value.h"
 #include "object/tval-types.h"
 #include "smith/object-smith.h"
 #include "sv-definition/sv-lite-types.h"
 #include "sv-definition/sv-other-types.h"
 #include "sv-definition/sv-weapon-types.h"
+#include "system/artifact-type-definition.h"
 #include "system/baseitem-info.h"
 #include "system/monster-race-info.h"
 #include "term/term-color-types.h"
@@ -78,7 +78,7 @@ void ItemEntity::prep(short new_bi_id)
         this->activation_id = baseitem.act_idx;
     }
 
-    if (baseitems_info[this->bi_id].cost <= 0) {
+    if (this->get_baseitem().cost <= 0) {
         this->ident |= (IDENT_BROKEN);
     }
 
@@ -322,13 +322,13 @@ bool ItemEntity::is_smith() const
 }
 
 /*!
- * @brief アイテムがアーティファクトかを返す /
+ * @brief アイテムが固定アーティファクトもしくはランダムアーティファクトであるかを返す /
  * Check if an object is artifact
- * @return アーティファクトならばtrueを返す
+ * @return 固定アーティファクトもしくはランダムアーティファクトならばtrueを返す
  */
-bool ItemEntity::is_artifact() const
+bool ItemEntity::is_fixed_or_random_artifact() const
 {
-    return this->is_fixed_artifact() || (this->art_name != 0);
+    return this->is_fixed_artifact() || this->randart_name.has_value();
 }
 
 /*!
@@ -348,7 +348,7 @@ bool ItemEntity::is_fixed_artifact() const
  */
 bool ItemEntity::is_random_artifact() const
 {
-    return this->is_artifact() && !this->is_fixed_artifact();
+    return this->is_fixed_or_random_artifact() && !this->is_fixed_artifact();
 }
 
 /*!
@@ -358,7 +358,7 @@ bool ItemEntity::is_random_artifact() const
  */
 bool ItemEntity::is_nameless() const
 {
-    return !this->is_artifact() && !this->is_ego() && !this->is_smith();
+    return !this->is_fixed_or_random_artifact() && !this->is_ego() && !this->is_smith();
 }
 
 bool ItemEntity::is_valid() const
@@ -388,7 +388,7 @@ bool ItemEntity::is_held_by_monster() const
  */
 bool ItemEntity::is_known() const
 {
-    const auto &baseitem = baseitems_info[this->bi_id];
+    const auto &baseitem = this->get_baseitem();
     return any_bits(this->ident, IDENT_KNOWN) || (baseitem.easy_know && baseitem.aware);
 }
 
@@ -403,7 +403,7 @@ bool ItemEntity::is_fully_known() const
  */
 bool ItemEntity::is_aware() const
 {
-    return baseitems_info[this->bi_id].aware;
+    return this->get_baseitem().aware;
 }
 
 /*
@@ -411,7 +411,7 @@ bool ItemEntity::is_aware() const
  */
 bool ItemEntity::is_tried() const
 {
-    return baseitems_info[this->bi_id].tried;
+    return this->get_baseitem().tried;
 }
 
 /*!
@@ -492,7 +492,7 @@ bool ItemEntity::is_activatable() const
         return false;
     }
 
-    auto flags = object_flags(this);
+    const auto flags = this->get_flags();
     return flags.has(TR_ACTIVATE);
 }
 
@@ -570,7 +570,7 @@ bool ItemEntity::can_pile(const ItemEntity *j_ptr) const
         return false;
     }
 
-    if (this->is_artifact() || j_ptr->is_artifact()) {
+    if (this->is_fixed_or_random_artifact() || j_ptr->is_fixed_or_random_artifact()) {
         return false;
     }
 
@@ -615,13 +615,13 @@ bool ItemEntity::can_pile(const ItemEntity *j_ptr) const
  */
 TERM_COLOR ItemEntity::get_color() const
 {
-    const auto &baseitem = baseitems_info[this->bi_id];
+    const auto &baseitem = this->get_baseitem();
     const auto flavor = baseitem.flavor;
     if (flavor != 0) {
         return baseitems_info[flavor].x_attr;
     }
 
-    auto has_attr = this->bi_id == 0;
+    auto has_attr = !this->is_valid();
     has_attr |= this->bi_key != BaseitemKey(ItemKindType::CORPSE, SV_CORPSE);
     has_attr |= baseitem.x_attr != TERM_DARK;
     if (has_attr) {
@@ -639,7 +639,7 @@ TERM_COLOR ItemEntity::get_color() const
  */
 char ItemEntity::get_symbol() const
 {
-    const auto &baseitem = baseitems_info[this->bi_id];
+    const auto &baseitem = this->get_baseitem();
     const auto flavor = baseitem.flavor;
     return flavor ? baseitems_info[flavor].x_char : baseitem.x_char;
 }
@@ -680,7 +680,7 @@ int ItemEntity::get_price() const
 int ItemEntity::get_baseitem_price() const
 {
     if (this->is_aware()) {
-        return baseitems_info[this->bi_id].cost;
+        return this->get_baseitem().cost;
     }
 
     switch (this->bi_key.tval()) {
@@ -798,4 +798,124 @@ bool ItemEntity::is_armour() const
 bool ItemEntity::is_cross_bow() const
 {
     return this->bi_key.is_cross_bow();
+}
+
+bool ItemEntity::is_inscribed() const
+{
+    return this->inscription != std::nullopt;
+}
+
+BaseitemInfo &ItemEntity::get_baseitem() const
+{
+    return baseitems_info[this->bi_id];
+}
+
+EgoItemDefinition &ItemEntity::get_ego() const
+{
+    return egos_info.at(this->ego_idx);
+}
+
+ArtifactType &ItemEntity::get_fixed_artifact() const
+{
+    return ArtifactsInfo::get_instance().get_artifact(this->fixed_artifact_idx);
+}
+
+TrFlags ItemEntity::get_flags() const
+{
+    const auto &baseitem = this->get_baseitem();
+    auto flags = baseitem.flags;
+
+    if (this->is_fixed_artifact()) {
+        flags = this->get_fixed_artifact().flags;
+    }
+
+    if (this->is_ego()) {
+        const auto &ego = this->get_ego();
+        flags.set(ego.flags);
+        this->modify_ego_lite_flags(flags);
+    }
+
+    flags.set(this->art_flags);
+    if (auto effect = Smith::object_effect(this); effect.has_value()) {
+        auto tr_flags = Smith::get_effect_tr_flags(effect.value());
+        flags.set(tr_flags);
+    }
+
+    if (Smith::object_activation(this).has_value()) {
+        flags.set(TR_ACTIVATE);
+    }
+
+    return flags;
+}
+
+TrFlags ItemEntity::get_flags_known() const
+{
+    TrFlags flags{};
+    if (!this->is_aware()) {
+        return flags;
+    }
+
+    const auto &baseitem = this->get_baseitem();
+    flags = baseitem.flags;
+    if (!this->is_known()) {
+        return flags;
+    }
+
+    if (this->is_ego()) {
+        const auto &ego = this->get_ego();
+        flags.set(ego.flags);
+        this->modify_ego_lite_flags(flags);
+    }
+
+    if (this->is_fully_known()) {
+        if (this->is_fixed_artifact()) {
+            flags = this->get_fixed_artifact().flags;
+        }
+
+        flags.set(this->art_flags);
+    }
+
+    if (auto effect = Smith::object_effect(this); effect.has_value()) {
+        auto tr_flags = Smith::get_effect_tr_flags(effect.value());
+        flags.set(tr_flags);
+    }
+
+    if (Smith::object_activation(this).has_value()) {
+        flags.set(TR_ACTIVATE);
+    }
+
+    return flags;
+}
+
+/*!
+ * @brief エゴ光源のフラグを修正する
+ *
+ * 寿命のある光源で寿命が0ターンの時、光源エゴアイテムに起因するフラグは
+ * 灼熱エゴの火炎耐性を除き付与されないようにする。
+ *
+ * @param flags フラグ情報を受け取る配列
+ */
+void ItemEntity::modify_ego_lite_flags(TrFlags &flags) const
+{
+    if (this->bi_key.tval() != ItemKindType::LITE) {
+        return;
+    }
+
+    if (!this->is_lite_requiring_fuel() || this->fuel != 0) {
+        return;
+    }
+
+    switch (this->ego_idx) {
+    case EgoType::LITE_AURA_FIRE:
+        flags.reset(TR_SH_FIRE);
+        return;
+    case EgoType::LITE_INFRA:
+        flags.reset(TR_INFRA);
+        return;
+    case EgoType::LITE_EYE:
+        flags.reset({ TR_RES_BLIND, TR_SEE_INVIS });
+        return;
+    default:
+        return;
+    }
 }

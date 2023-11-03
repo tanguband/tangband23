@@ -1,7 +1,6 @@
-﻿#include "object-hook/hook-weapon.h"
+#include "object-hook/hook-weapon.h"
 #include "object-enchant/tr-types.h"
 #include "object-hook/hook-armor.h"
-#include "object/object-flags.h"
 #include "object/tval-types.h"
 #include "player/player-skill.h"
 #include "sv-definition/sv-weapon-types.h"
@@ -25,8 +24,8 @@ bool object_is_favorite(PlayerType *player_ptr, const ItemEntity *o_ptr)
     const auto sval = o_ptr->bi_key.sval().value();
     switch (player_ptr->pclass) {
     case PlayerClassType::PRIEST: {
-        const auto flgs = object_flags_known(o_ptr);
-        return flgs.has(TR_BLESSED) || (tval == ItemKindType::HAFTED);
+        const auto flags = o_ptr->get_flags_known();
+        return flags.has(TR_BLESSED) || (tval == ItemKindType::HAFTED);
     }
     case PlayerClassType::MONK:
     case PlayerClassType::FORCETRAINER:
@@ -35,8 +34,8 @@ bool object_is_favorite(PlayerType *player_ptr, const ItemEntity *o_ptr)
     case PlayerClassType::BEASTMASTER:
     case PlayerClassType::CAVALRY: {
         /* Is it known to be suitable to using while riding? */
-        auto flgs = object_flags_known(o_ptr);
-        return flgs.has(TR_RIDING);
+        auto flags = o_ptr->get_flags_known();
+        return flags.has(TR_RIDING);
     }
     case PlayerClassType::SORCERER:
         return player_ptr->weapon_exp_max[tval][sval] >= PlayerSkill::weapon_exp_at(PlayerSkillRank::MASTER);

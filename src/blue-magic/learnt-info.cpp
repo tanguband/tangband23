@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file learnt-info.cpp
  * @brief 青魔法の情報表示処理定義
  */
@@ -36,9 +36,7 @@ static std::string set_bluemage_damage(PlayerType *player_ptr, MonsterAbilityTyp
     int dice_side = monspell_bluemage_damage(player_ptr, ms_type, plev, DICE_SIDE);
     int dice_mult = monspell_bluemage_damage(player_ptr, ms_type, plev, DICE_MULT);
     int dice_div = monspell_bluemage_damage(player_ptr, ms_type, plev, DICE_DIV);
-    char dmg_str[80];
-    dice_to_string(base_damage, dice_num, dice_side, dice_mult, dice_div, dmg_str);
-    return format(" %s %s", msg, dmg_str);
+    return format(" %s %s", msg, dice_to_string(base_damage, dice_num, dice_side, dice_mult, dice_div).data());
 }
 
 /*!
@@ -93,6 +91,7 @@ std::string learnt_info(PlayerType *player_ptr, MonsterAbilityType power)
     case MonsterAbilityType::BA_WATE:
     case MonsterAbilityType::BA_VOID:
     case MonsterAbilityType::BA_ABYSS:
+    case MonsterAbilityType::BA_METEOR:
         return set_bluemage_damage(player_ptr, power, plev, KWD_DAM);
     case MonsterAbilityType::DRAIN_MANA:
         return set_bluemage_damage(player_ptr, power, plev, KWD_HEAL);
@@ -113,6 +112,7 @@ std::string learnt_info(PlayerType *player_ptr, MonsterAbilityType power)
     case MonsterAbilityType::BO_ABYSS:
     case MonsterAbilityType::BO_VOID:
     case MonsterAbilityType::BO_ICEE:
+    case MonsterAbilityType::BO_METEOR:
     case MonsterAbilityType::MISSILE:
         return set_bluemage_damage(player_ptr, power, plev, KWD_DAM);
     case MonsterAbilityType::HASTE:

@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file h-config.h
  * @brief OSごとの差異を吸収してコンパイルするためのプリプロ群
  * The most basic "include" file.
@@ -30,6 +30,9 @@ constexpr auto MAINTAINER = "echizen@users.sourceforge.jp";
  * フォントやデフォルトのlibパス等も定義する.
  * HAVE_CONFIG_Hは、autoconfによりコンパイラスイッチ「-DHAVE_CONFIG_H」が付加される.
  */
+#ifdef JP
+#define iseuckanji(x) (((unsigned char)(x) >= 0xa1 && (unsigned char)(x) <= 0xfe) || (unsigned char)(x) == 0x8e)
+#endif
 #undef PATH_SEP
 #ifdef WINDOWS
   #define PATH_SEP "\\"
@@ -56,10 +59,6 @@ constexpr auto MAINTAINER = "echizen@users.sourceforge.jp";
   
   #ifndef DEFAULT_LIB_PATH
     #define DEFAULT_LIB_PATH "./lib/"
-  #endif
-  
-  #ifndef DEFAULT_VAR_PATH
-    #define DEFAULT_VAR_PATH DEFAULT_LIB_PATH
   #endif
   
   #ifdef USE_XFT
@@ -91,7 +90,7 @@ constexpr auto MAINTAINER = "echizen@users.sourceforge.jp";
   
   #ifdef JP
     #ifdef EUC
-      #define iskanji(x) (((unsigned char)(x) >= 0xa1 && (unsigned char)(x) <= 0xfe) || (unsigned char)(x) == 0x8e)
+      #define iskanji(x) (iseuckanji(x))
       #define iskana(x) (0)
     #else
       #error Oops! Please define "EUC" for kanji-code of your system.
@@ -110,3 +109,7 @@ constexpr auto MAINTAINER = "echizen@users.sourceforge.jp";
 #endif
 
 // clang-format on
+
+#if !defined(__GNUC__)
+#define __attribute__(x)
+#endif

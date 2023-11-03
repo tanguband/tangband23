@@ -1,12 +1,32 @@
-﻿#include "wizard/spoiler-util.h"
+#include "wizard/spoiler-util.h"
+#include "system/item-entity.h"
+#include <fstream>
 
 const char item_separator = ',';
 const char list_separator = _(',', ';');
 const int max_evolution_depth = 64;
-concptr spoiler_indent = "    ";
+const std::string spoiler_indent = "    ";
 
 /* The spoiler file being created */
 FILE *spoiler_file = nullptr;
+
+/*!
+ * @brief 特性フラグ定義から表記すべき特性を抽出する
+ * @param art_flags 出力するアーティファクトの特性一覧
+ * @param definitions 表記対象の特性一覧
+ * @return 表記すべき特性一覧
+ */
+std::vector<std::string> extract_spoiler_flags(const TrFlags &art_flags, const std::vector<flag_desc> &definitions)
+{
+    std::vector<std::string> descriptions{};
+    for (const auto &definition : definitions) {
+        if (art_flags.has(definition.flag)) {
+            descriptions.push_back(definition.desc);
+        }
+    }
+
+    return descriptions;
+}
 
 /*!
  * @brief ファイルポインタ先に同じ文字を複数出力する /
@@ -14,10 +34,10 @@ FILE *spoiler_file = nullptr;
  * @param n 出力する数
  * @param c 出力するキャラクタ
  */
-static void spoiler_out_n_chars(int n, char c)
+static void spoiler_out_n_chars(int n, char c, std::ofstream &ofs)
 {
-    while (--n >= 0) {
-        fputc(c, spoiler_file);
+    for (auto i = 0; i < n; i++) {
+        ofs << c;
     }
 }
 
@@ -26,9 +46,9 @@ static void spoiler_out_n_chars(int n, char c)
  * Write out `n' blank lines to the spoiler file
  * @param n 改行を出力する数
  */
-void spoiler_blanklines(int n)
+void spoiler_blanklines(int n, std::ofstream &ofs)
 {
-    spoiler_out_n_chars(n, '\n');
+    spoiler_out_n_chars(n, '\n', ofs);
 }
 
 /*!
@@ -36,24 +56,25 @@ void spoiler_blanklines(int n)
  * Write a line to the spoiler file and then "underline" it with hypens
  * @param str 出力したい文字列
  */
-void spoiler_underline(concptr str)
+void spoiler_underline(std::string_view str, std::ofstream &ofs)
 {
-    fprintf(spoiler_file, "%s\n", str);
-    spoiler_out_n_chars(strlen(str), '-');
-    fprintf(spoiler_file, "\n");
+    ofs << str.data() << '\n';
+    spoiler_out_n_chars(str.length(), '-', ofs);
+    ofs << '\n';
 }
 
 /*!
  * @brief 文字列をファイルポインタに出力する /
  * Buffer text to the given file. (-SHAWN-)
  * This is basically c_roff() from mon-desc.c with a few changes.
- * @param str 文字列参照ポインタ
+ * @param sv 文字列
+ * @param flush_buffer trueならバッファの内容をフラッシュし、改行を書き込む。strは無視される。
  */
-void spoil_out(concptr str)
+void spoil_out(std::string_view sv, bool flush_buffer)
 {
     concptr r;
-    static char roff_buf[256];
-    static char roff_waiting_buf[256];
+    static char roff_buf[256]{};
+    static char roff_waiting_buf[256]{};
 
 #ifdef JP
     bool iskanji_flag = false;
@@ -62,7 +83,7 @@ void spoil_out(concptr str)
     static char *roff_p = roff_buf;
     static char *roff_s = nullptr;
     static bool waiting_output = false;
-    if (!str) {
+    if (flush_buffer) {
         if (waiting_output) {
             fputs(roff_waiting_buf, spoiler_file);
             waiting_output = false;
@@ -88,7 +109,7 @@ void spoil_out(concptr str)
         return;
     }
 
-    for (; *str; str++) {
+    for (auto str = sv.data(); *str != '\0'; ++str) {
 #ifdef JP
         char cbak;
         bool k_flag = iskanji((unsigned char)(*str));
@@ -220,4 +241,23 @@ void spoil_out(concptr str)
 
         *roff_p++ = ch;
     }
+}
+
+void ParameterValueInfo::analyze(const ItemEntity &item)
+{
+    if (item.pval == 0) {
+        return;
+    }
+
+    const auto flags = item.get_flags();
+    this->pval_desc = format("%+d", item.pval);
+    if (flags.has_all_of(EnumRange(TR_STR, TR_CHR))) {
+        this->pval_affects.push_back(_("全能力", "All stats"));
+    } else if (flags.has_any_of(EnumRange(TR_STR, TR_CHR))) {
+        const auto descriptions_stat = extract_spoiler_flags(flags, stat_flags_desc);
+        this->pval_affects.insert(this->pval_affects.end(), descriptions_stat.begin(), descriptions_stat.end());
+    }
+
+    const auto descriptions_pval1 = extract_spoiler_flags(flags, pval_flags1_desc);
+    this->pval_affects.insert(this->pval_affects.end(), descriptions_pval1.begin(), descriptions_pval1.end());
 }

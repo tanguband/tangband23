@@ -1,6 +1,4 @@
-﻿#include "spell-realm/spells-chaos.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
+#include "spell-realm/spells-chaos.h"
 #include "core/window-redrawer.h"
 #include "dungeon/quest.h"
 #include "effect/attribute-types.h"
@@ -21,6 +19,7 @@
 #include "system/grid-type-definition.h"
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "target/projection-path-calculator.h"
 #include "util/bit-flags-calculator.h"
@@ -40,7 +39,7 @@ void call_the_void(PlayerType *player_ptr)
         auto *g_ptr = &floor_ptr->grid_array[player_ptr->y + ddy_ddd[i]][player_ptr->x + ddx_ddd[i]];
 
         if (!g_ptr->cave_has_flag(TerrainCharacteristics::PROJECT)) {
-            if (!g_ptr->mimic || terrains_info[g_ptr->mimic].flags.has_not(TerrainCharacteristics::PROJECT) || !permanent_wall(&terrains_info[g_ptr->feat])) {
+            if (!g_ptr->mimic || terrains_info[g_ptr->mimic].flags.has_not(TerrainCharacteristics::PROJECT) || !terrains_info[g_ptr->feat].is_permanent_wall()) {
                 do_call = false;
                 break;
             }
@@ -69,7 +68,7 @@ void call_the_void(PlayerType *player_ptr)
         return;
     }
 
-    bool is_special_fllor = inside_quest(floor_ptr->quest_number) && quest_type::is_fixed(floor_ptr->quest_number);
+    auto is_special_fllor = floor_ptr->is_in_quest() && QuestType::is_fixed(floor_ptr->quest_number);
     is_special_fllor |= floor_ptr->dun_level == 0;
     if (is_special_fllor) {
         msg_print(_("地面が揺れた。", "The ground trembles."));
@@ -110,13 +109,12 @@ void call_the_void(PlayerType *player_ptr)
 bool vanish_dungeon(PlayerType *player_ptr)
 {
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    bool is_special_floor = inside_quest(floor_ptr->quest_number) && quest_type::is_fixed(floor_ptr->quest_number);
+    bool is_special_floor = floor_ptr->is_in_quest() && QuestType::is_fixed(floor_ptr->quest_number);
     is_special_floor |= (floor_ptr->dun_level == 0);
     if (is_special_floor) {
         return false;
     }
 
-    GAME_TEXT m_name[MAX_NLEN];
     for (POSITION y = 1; y < floor_ptr->height - 1; y++) {
         for (POSITION x = 1; x < floor_ptr->width - 1; x++) {
             auto *g_ptr = &floor_ptr->grid_array[y][x];
@@ -127,8 +125,8 @@ bool vanish_dungeon(PlayerType *player_ptr)
             if (g_ptr->m_idx && m_ptr->is_asleep()) {
                 (void)set_monster_csleep(player_ptr, g_ptr->m_idx, 0);
                 if (m_ptr->ml) {
-                    monster_desc(player_ptr, m_name, m_ptr, 0);
-                    msg_format(_("%^sが目を覚ました。", "%^s wakes up."), m_name);
+                    const auto m_name = monster_desc(player_ptr, m_ptr, 0);
+                    msg_format(_("%s^が目を覚ました。", "%s^ wakes up."), m_name.data());
                 }
             }
 
@@ -187,9 +185,23 @@ bool vanish_dungeon(PlayerType *player_ptr)
         }
     }
 
-    player_ptr->update |= (PU_UN_VIEW | PU_UN_LITE | PU_VIEW | PU_LITE | PU_FLOW | PU_MON_LITE | PU_MONSTERS);
-    player_ptr->redraw |= (PR_MAP);
-    player_ptr->window_flags |= (PW_OVERHEAD | PW_DUNGEON);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    static constexpr auto flags_srf = {
+        StatusRecalculatingFlag::UN_VIEW,
+        StatusRecalculatingFlag::UN_LITE,
+        StatusRecalculatingFlag::VIEW,
+        StatusRecalculatingFlag::LITE,
+        StatusRecalculatingFlag::FLOW,
+        StatusRecalculatingFlag::MONSTER_LITE,
+        StatusRecalculatingFlag::MONSTER_STATUSES,
+    };
+    rfu.set_flags(flags_srf);
+    rfu.set_flag(MainWindowRedrawingFlag::MAP);
+    static constexpr auto flags_swrf = {
+        SubWindowRedrawingFlag::OVERHEAD,
+        SubWindowRedrawingFlag::DUNGEON,
+    };
+    rfu.set_flags(flags_swrf);
     return true;
 }
 
@@ -222,7 +234,12 @@ void cast_meteor(PlayerType *player_ptr, int dam, POSITION rad)
             }
 
             auto *floor_ptr = player_ptr->current_floor_ptr;
-            if (!in_bounds(floor_ptr, y, x) || !projectable(player_ptr, player_ptr->y, player_ptr->x, y, x) || !cave_has_flag_bold(floor_ptr, y, x, TerrainCharacteristics::PROJECT)) {
+            if (!in_bounds(floor_ptr, y, x)) {
+                continue;
+            }
+
+            const auto is_projectable = projectable(player_ptr, player_ptr->y, player_ptr->x, y, x);
+            if (!is_projectable || !cave_has_flag_bold(floor_ptr, y, x, TerrainCharacteristics::PROJECT)) {
                 continue;
             }
 

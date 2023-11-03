@@ -1,4 +1,4 @@
-﻿#include "market/arena.h"
+#include "market/arena.h"
 #include "cmd-building/cmd-building.h"
 #include "core/asking-player.h"
 #include "core/show-file.h"
@@ -10,6 +10,7 @@
 #include "market/arena-info-table.h"
 #include "market/building-actions-table.h"
 #include "market/building-util.h"
+#include "monster-floor/place-monster-types.h"
 #include "monster-race/monster-race-hook.h"
 #include "monster-race/monster-race.h"
 #include "monster-race/race-flags-resistance.h"
@@ -19,12 +20,15 @@
 #include "monster/monster-util.h"
 #include "player-base/player-class.h"
 #include "status/buff-setter.h"
+#include "system/angband-system.h"
 #include "system/building-type-definition.h"
 #include "system/dungeon-info.h"
 #include "system/floor-type-definition.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "util/int-char-converter.h"
 #include "view/display-messages.h"
 #include "world/world.h"
@@ -75,7 +79,7 @@ static bool battle_metal_babble(PlayerType *player_ptr)
 
     msg_print(_("君のために最強の挑戦者を用意しておいた。", "The strongest challenger is waiting for you."));
     msg_print(nullptr);
-    if (!get_check(_("挑戦するかね？", "Do you fight? "))) {
+    if (!input_check(_("挑戦するかね？", "Do you fight? "))) {
         msg_print(_("残念だ。", "We are disappointed."));
         return true;
     }
@@ -132,13 +136,10 @@ static void see_arena_poster(PlayerType *player_ptr)
         return;
     }
 
-    MonsterRaceInfo *r_ptr;
-    r_ptr = &monraces_info[arena_info[player_ptr->arena_number].r_idx];
-    concptr name = r_ptr->name.data();
-    msg_format(_("%s に挑戦するものはいないか？", "Do I hear any challenges against: %s"), name);
-
+    auto *r_ptr = &monraces_info[arena_info[player_ptr->arena_number].r_idx];
+    msg_format(_("%s に挑戦するものはいないか？", "Do I hear any challenges against: %s"), r_ptr->name.data());
     player_ptr->monster_race_idx = arena_info[player_ptr->arena_number].r_idx;
-    player_ptr->window_flags |= (PW_MONSTER);
+    RedrawingFlagsUpdater::get_instance().set_flag(SubWindowRedrawingFlag::MONSTER_LORE);
     handle_stuff(player_ptr);
 }
 
@@ -160,7 +161,7 @@ void arena_comm(PlayerType *player_ptr, int cmd)
         screen_save();
 
         /* Peruse the on_defeat_arena_monster help file */
-        (void)show_file(player_ptr, true, _("arena_j.txt", "arena.txt"), nullptr, 0, 0);
+        (void)show_file(player_ptr, true, _("arena_j.txt", "arena.txt"), 0, 0);
         screen_load();
         break;
     }
@@ -203,7 +204,7 @@ void update_gambling_monsters(PlayerType *player_ptr)
             int j;
             while (true) {
                 get_mon_num_prep(player_ptr, monster_can_entry_arena, nullptr);
-                r_idx = get_mon_num(player_ptr, 0, mon_level, GMN_ARENA);
+                r_idx = get_mon_num(player_ptr, 0, mon_level, PM_ARENA);
                 if (!MonsterRace(r_idx).is_valid()) {
                     continue;
                 }
@@ -265,11 +266,6 @@ void update_gambling_monsters(PlayerType *player_ptr)
  */
 bool monster_arena_comm(PlayerType *player_ptr)
 {
-    PRICE maxbet;
-    PRICE wager;
-    char out_val[MAX_MONSTER_NAME], tmp_str[80];
-    concptr p;
-
     if ((w_ptr->game_turn - w_ptr->arena_start_turn) > TURNS_PER_TICK * 250) {
         update_gambling_monsters(player_ptr);
         w_ptr->arena_start_turn = w_ptr->game_turn;
@@ -288,15 +284,19 @@ bool monster_arena_comm(PlayerType *player_ptr)
     clear_bldg(4, 10);
 
     prt(_("モンスター                                                     倍率", "Monsters                                                       Odds"), 4, 4);
-    for (int i = 0; i < 4; i++) {
-        char buf[MAX_MONSTER_NAME];
-        auto *r_ptr = &monraces_info[battle_mon_list[i]];
+    for (auto i = 0; i < 4; i++) {
+        const auto &monrace = monraces_info[battle_mon_list[i]];
+        std::string name;
+        if (monrace.kind_flags.has(MonsterKindType::UNIQUE)) {
+            name = _(monrace.name, "Fake ");
+            name.append(_("もどき", monrace.name));
+        } else {
+            name = monrace.name;
+            name.append(_("      ", ""));
+        }
 
-        sprintf(buf, _("%d) %-58s  %4ld.%02ld倍", "%d) %-58s  %4ld.%02ld"), i + 1,
-            _(format("%s%s", r_ptr->name.data(), r_ptr->kind_flags.has(MonsterKindType::UNIQUE) ? "もどき" : "      "),
-                format("%s%s", r_ptr->kind_flags.has(MonsterKindType::UNIQUE) ? "Fake " : "", r_ptr->name.data())),
-            (long int)mon_odds[i] / 100, (long int)mon_odds[i] % 100);
-        prt(buf, 5 + i, 1);
+        constexpr auto fmt = _("%d) %-58s  %4ld.%02ld倍", "%d) %-58s  %4ld.%02ld");
+        prt(format(fmt, i + 1, name.data(), (long int)mon_odds[i] / 100, (long int)mon_odds[i] % 100), 5 + i, 1);
     }
 
     prt(_("どれに賭けますか:", "Which monster: "), 0, 0);
@@ -326,42 +326,21 @@ bool monster_arena_comm(PlayerType *player_ptr)
         }
     }
 
-    maxbet = player_ptr->lev * 200;
-
-    /* We can't bet more than we have */
+    auto maxbet = player_ptr->lev * 200;
     maxbet = std::min(maxbet, player_ptr->au);
-
-    /* Get the wager */
-    strcpy(out_val, "");
-    sprintf(tmp_str, _("賭け金 (1-%ld)？", "Your wager (1-%ld) ? "), (long int)maxbet);
-
-    /*
-     * Use get_string() because we may need more than
-     * the int16_t value returned by get_quantity().
-     */
-    if (!get_string(tmp_str, out_val, 32)) {
+    constexpr auto prompt = _("賭け金？", "Your wager? ");
+    const auto wager_opt = input_integer(prompt, 1, maxbet, 1);
+    if (!wager_opt.has_value()) {
         screen_load();
         return false;
     }
 
-    for (p = out_val; *p == ' '; p++) {
-        ;
-    }
-
-    wager = atol(p);
+    auto wager = wager_opt.value();
     if (wager > player_ptr->au) {
         msg_print(_("おい！金が足りないじゃないか！出ていけ！", "Hey! You don't have the gold - get out of here!"));
-
         msg_print(nullptr);
         screen_load();
         return false;
-    } else if (wager > maxbet) {
-        msg_format(_("%ldゴールドだけ受けよう。残りは取っときな。", "I'll take %ld gold of that. Keep the rest."), (long int)maxbet);
-
-        wager = maxbet;
-    } else if (wager < 1) {
-        msg_print(_("ＯＫ、１ゴールドでいこう。", "Ok, we'll start with 1 gold."));
-        wager = 1;
     }
 
     msg_print(nullptr);
@@ -371,8 +350,7 @@ bool monster_arena_comm(PlayerType *player_ptr)
     reset_tim_flags(player_ptr);
 
     prepare_change_floor_mode(player_ptr, CFM_SAVE_FLOORS);
-
-    player_ptr->phase_out = true;
+    AngbandSystem::get_instance().set_phase_out(true);
     player_ptr->leaving = true;
     player_ptr->leave_bldg = true;
 

@@ -1,4 +1,4 @@
-﻿#include "view/display-lore-drops.h"
+#include "view/display-lore-drops.h"
 #include "lore/lore-util.h"
 #include "monster-race/race-flags1.h"
 #include "util/bit-flags-calculator.h"
@@ -103,7 +103,7 @@ void display_monster_drops(lore_type *lore_ptr)
         return;
     }
 
-    hooked_roff(format(_("%^sは", "%^s may carry"), Who::who(lore_ptr->msex)));
+    hooked_roff(format(_("%s^は", "%s^ may carry"), Who::who(lore_ptr->msex)));
 #ifdef JP
 #else
     lore_ptr->sin = false;

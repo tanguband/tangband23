@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ベースアイテムを強化する処理
  * @date 2022/03/22
  * @author Hourier
@@ -74,13 +74,15 @@ void ItemMagicApplier::execute()
 std::tuple<int, int> ItemMagicApplier::calculate_chances()
 {
     auto chance_good = this->lev + 10;
-    if (chance_good > dungeons_info[this->player_ptr->dungeon_idx].obj_good) {
-        chance_good = dungeons_info[this->player_ptr->dungeon_idx].obj_good;
+    const auto &floor = *this->player_ptr->current_floor_ptr;
+    const auto &dungeon = floor.get_dungeon_definition();
+    if (chance_good > dungeon.obj_good) {
+        chance_good = dungeon.obj_good;
     }
 
     auto chance_great = chance_good * 2 / 3;
-    if ((this->player_ptr->ppersonality != PERSONALITY_MUNCHKIN) && (chance_great > dungeons_info[this->player_ptr->dungeon_idx].obj_great)) {
-        chance_great = dungeons_info[this->player_ptr->dungeon_idx].obj_great;
+    if ((this->player_ptr->ppersonality != PERSONALITY_MUNCHKIN) && (chance_great > dungeon.obj_great)) {
+        chance_great = dungeon.obj_great;
     }
 
     if (has_good_luck(this->player_ptr)) {
@@ -183,12 +185,7 @@ bool ItemMagicApplier::set_fixed_artifact_generation_info()
     }
 
     apply_artifact(this->player_ptr, this->o_ptr);
-    auto &a_ref = artifacts_info.at(this->o_ptr->fixed_artifact_idx);
-    a_ref.is_generated = true;
-    if (w_ptr->character_dungeon) {
-        a_ref.floor_id = this->player_ptr->floor_id;
-    }
-
+    this->o_ptr->get_fixed_artifact().is_generated = true;
     return true;
 }
 
@@ -197,12 +194,12 @@ bool ItemMagicApplier::set_fixed_artifact_generation_info()
  */
 void ItemMagicApplier::apply_cursed()
 {
-    if (this->o_ptr->bi_id == 0) {
+    if (!this->o_ptr->is_valid()) {
         return;
     }
 
-    const auto &baseitem = baseitems_info[this->o_ptr->bi_id];
-    if (!baseitems_info[this->o_ptr->bi_id].cost) {
+    const auto &baseitem = this->o_ptr->get_baseitem();
+    if (!baseitem.cost) {
         set_bits(this->o_ptr->ident, IDENT_BROKEN);
     }
 

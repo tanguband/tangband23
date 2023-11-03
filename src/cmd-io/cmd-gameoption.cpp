@@ -1,9 +1,8 @@
-﻿#include "cmd-io/cmd-gameoption.h"
+#include "cmd-io/cmd-gameoption.h"
 #include "autopick/autopick.h"
 #include "cmd-io/cmd-autopick.h"
 #include "cmd-io/cmd-dump.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
 #include "core/show-file.h"
 #include "core/window-redrawer.h"
 #include "floor/geometry.h"
@@ -17,9 +16,11 @@
 #include "main/sound-of-music.h"
 #include "system/game-option-types.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/gameterm.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "util/bit-flags-calculator.h"
 #include "util/int-char-converter.h"
 #include "util/string-processor.h"
@@ -93,21 +94,16 @@ static void do_cmd_options_autosave(PlayerType *player_ptr, concptr info)
 {
     char ch;
     int i, k = 0, n = 2;
-    char buf[80];
     term_clear();
     while (true) {
-        sprintf(buf,
-            _("%s ( リターンで次へ, y/n でセット, F で頻度を入力, ESC で決定 ) ", "%s (RET to advance, y/n to set, 'F' for frequency, ESC to accept) "), info);
-        prt(buf, 0, 0);
+        prt(format(_("%s ( リターンで次へ, y/n でセット, F で頻度を入力, ESC で決定 ) ", "%s (RET to advance, y/n to set, 'F' for frequency, ESC to accept) "), info), 0, 0);
         for (i = 0; i < n; i++) {
             byte a = TERM_WHITE;
             if (i == k) {
                 a = TERM_L_BLUE;
             }
 
-            sprintf(
-                buf, "%-48s: %s (%s)", autosave_info[i].o_desc, (*autosave_info[i].o_var ? _("はい  ", "yes") : _("いいえ", "no ")), autosave_info[i].o_text);
-            c_prt(a, buf, i + 2, 0);
+            c_prt(a, format("%-48s: %s (%s)", autosave_info[i].o_desc, (*autosave_info[i].o_var ? _("はい  ", "yes") : _("いいえ", "no ")), autosave_info[i].o_text), i + 2, 0);
         }
 
         prt(format(_("自動セーブの頻度： %d ターン毎", "Timed autosave frequency: every %d turns"), autosave_freq), 5, 0);
@@ -157,7 +153,7 @@ static void do_cmd_options_autosave(PlayerType *player_ptr, concptr info)
         }
 
         case '?': {
-            (void)show_file(player_ptr, true, _("joption.txt#Autosave", "option.txt#Autosave"), nullptr, 0, 0);
+            (void)show_file(player_ptr, true, _("joption.txt#Autosave", "option.txt#Autosave"), 0, 0);
             term_clear();
             break;
         }
@@ -174,12 +170,16 @@ static void do_cmd_options_autosave(PlayerType *player_ptr, concptr info)
  * @brief 指定のサブウィンドウが指定のウィンドウフラグを持つか調べる
  * @param x ウィンドウ番号
  * @param y ウィンドウフラグ番号
- * @return 持つならTRUE、持たないならFALSE
+ * @return 持つならTRUE、持たないかメインウィンドウならFALSE
  */
 static bool has_window_flag(int x, int y)
 {
-    auto flag = i2enum<window_redraw_type>(1UL << y);
-    return any_bits(window_flag[x], flag);
+    if (x == 0) {
+        return false;
+    }
+
+    auto flag = i2enum<SubWindowRedrawingFlag>(y);
+    return g_window_flags[x].has(flag);
 }
 
 /*!
@@ -191,10 +191,12 @@ static bool has_window_flag(int x, int y)
  */
 static void set_window_flag(int x, int y)
 {
-    auto flag = i2enum<window_redraw_type>(1UL << y);
-    if (any_bits(PW_ALL, flag)) {
-        set_bits(window_flag[x], flag);
+    if (x == 0) {
+        return;
     }
+
+    auto flag = i2enum<SubWindowRedrawingFlag>(y);
+    g_window_flags[x].set(flag);
 }
 
 /*!
@@ -203,11 +205,14 @@ static void set_window_flag(int x, int y)
  */
 static void clear_window_flag(int x, int y)
 {
-    window_flag[x] = 0;
+    g_window_flags[x].clear();
+    if (x == 0) {
+        return;
+    }
 
-    auto flag = i2enum<window_redraw_type>(1UL << y);
-    for (int i = 0; i < 8; i++) {
-        reset_bits(window_flag[i], flag);
+    auto flag = i2enum<SubWindowRedrawingFlag>(y);
+    for (auto &window_flag : g_window_flags) {
+        window_flag.reset(flag);
     }
 }
 
@@ -222,18 +227,13 @@ static void do_cmd_options_win(PlayerType *player_ptr)
     TERM_LEN x = 0;
     char ch;
     bool go = true;
-    uint32_t old_flag[8];
-
-    for (j = 0; j < 8; j++) {
-        old_flag[j] = window_flag[j];
-    }
-
+    const auto old_flags = g_window_flags;
     term_clear();
     while (go) {
         prt(_("ウィンドウ・フラグ (<方向>で移動, 't'でON/OFF,'s'でON(他窓OFF), ESC)", "Window Flags (<dir>, <t>oggle, <s>et, ESC) "), 0, 0);
         for (j = 0; j < 8; j++) {
             byte a = TERM_WHITE;
-            concptr s = angband_term_name[j];
+            auto s = angband_term_name[j];
             if (j == x) {
                 a = TERM_L_BLUE;
             }
@@ -260,7 +260,7 @@ static void do_cmd_options_win(PlayerType *player_ptr)
                     a = TERM_L_BLUE;
                 }
 
-                if (window_flag[j] & (1UL << i)) {
+                if (g_window_flags[j].has(i2enum<SubWindowRedrawingFlag>(i))) {
                     c = 'X';
                 }
 
@@ -279,7 +279,7 @@ static void do_cmd_options_win(PlayerType *player_ptr)
         case 't':
         case 'T':
             has_flag = has_window_flag(x, y);
-            window_flag[x] = 0;
+            g_window_flags[x].clear();
             if (x > 0 && !has_flag) {
                 set_window_flag(x, y);
             }
@@ -289,12 +289,12 @@ static void do_cmd_options_win(PlayerType *player_ptr)
             if (x == 0) {
                 break;
             }
-            window_flag[x] = 0;
+            g_window_flags[x].clear();
             clear_window_flag(x, y);
             set_window_flag(x, y);
             break;
         case '?':
-            (void)show_file(player_ptr, true, _("joption.txt#Window", "option.txt#Window"), nullptr, 0, 0);
+            (void)show_file(player_ptr, true, _("joption.txt#Window", "option.txt#Window"), 0, 0);
             term_clear();
             break;
         default:
@@ -314,7 +314,7 @@ static void do_cmd_options_win(PlayerType *player_ptr)
             continue;
         }
 
-        if (window_flag[term_index] == old_flag[term_index]) {
+        if (g_window_flags[term_index] == old_flags[term_index]) {
             continue;
         }
 
@@ -336,9 +336,7 @@ static void do_cmd_options_cheat(PlayerType *player_ptr, concptr info)
     auto k = 0U;
     const auto n = cheat_info.size();
     while (true) {
-        char buf[80];
-        sprintf(buf, _("%s ( リターンで次へ, y/n でセット, ESC で決定 )", "%s (RET to advance, y/n to set, ESC to accept) "), info);
-        prt(buf, 0, 0);
+        prt(format(_("%s ( リターンで次へ, y/n でセット, ESC で決定 )", "%s (RET to advance, y/n to set, ESC to accept) "), info), 0, 0);
 
 #ifdef JP
         /* 詐欺オプションをうっかりいじってしまう人がいるようなので注意 */
@@ -353,8 +351,8 @@ static void do_cmd_options_cheat(PlayerType *player_ptr, concptr info)
                 a = TERM_L_BLUE;
             }
 
-            sprintf(buf, "%-48s: %s (%s)", cheat_info[i].o_desc, (*cheat_info[i].o_var ? _("はい  ", "yes") : _("いいえ", "no ")), cheat_info[i].o_text);
-            c_prt(enum2i(a), buf, i + 2, 0);
+            const auto yesno = *cheat_info[i].o_var ? _("はい  ", "yes") : _("いいえ", "no ");
+            c_prt(enum2i(a), format("%-48s: %s (%s)", cheat_info[i].o_desc, yesno, cheat_info[i].o_text), i + 2, 0);
         }
 
         move_cursor(k + 2, 50);
@@ -381,7 +379,7 @@ static void do_cmd_options_cheat(PlayerType *player_ptr, concptr info)
         case 'Y':
         case '6':
             if (!w_ptr->noscore) {
-                exe_write_diary(player_ptr, DIARY_DESCRIPTION, 0,
+                exe_write_diary(player_ptr, DiaryKind::DESCRIPTION, 0,
                     _("詐欺オプションをONにして、スコアを残せなくなった。", "gave up sending score to use cheating options."));
             }
 
@@ -396,8 +394,7 @@ static void do_cmd_options_cheat(PlayerType *player_ptr, concptr info)
             k = (k + 1) % n;
             break;
         case '?':
-            strnfmt(buf, sizeof(buf), _("joption.txt#%s", "option.txt#%s"), cheat_info[k].o_text);
-            (void)show_file(player_ptr, true, buf, nullptr, 0, 0);
+            (void)show_file(player_ptr, true, std::string(_("joption.txt#", "option.txt#")).append(cheat_info[k].o_text), 0, 0);
             term_clear();
             break;
         default:
@@ -416,7 +413,7 @@ void extract_option_vars(void)
         int os = option_info[i].o_set;
         int ob = option_info[i].o_bit;
         if (option_info[i].o_var) {
-            if (option_flag[os] & (1UL << ob)) {
+            if (g_option_flags[os] & (1UL << ob)) {
                 (*option_info[i].o_var) = true;
             } else {
                 (*option_info[i].o_var) = false;
@@ -436,6 +433,8 @@ void extract_option_vars(void)
  */
 void do_cmd_options(PlayerType *player_ptr)
 {
+    TermCenteredOffsetSetter tcos(MAIN_TERM_MIN_COLS, MAIN_TERM_MIN_ROWS);
+
     char k;
     int d, skey;
     TERM_LEN i, y = 0;
@@ -560,7 +559,7 @@ void do_cmd_options(PlayerType *player_ptr)
         case 'W':
         case 'w': {
             do_cmd_options_win(player_ptr);
-            player_ptr->window_flags = PW_ALL;
+            RedrawingFlagsUpdater::get_instance().fill_up_sub_flags();
             break;
         }
         case 'P':
@@ -572,7 +571,12 @@ void do_cmd_options(PlayerType *player_ptr)
         case 'd': {
             clear_from(18);
             prt(format(_("現在ウェイト量(msec): %d", "Current Delay Factor(msec): %d"), delay_factor), 19, 0);
-            (void)get_value(_("コマンド: ウェイト量(msec)", "Command: Delay Factor(msec)"), 0, 1000, &delay_factor);
+            constexpr auto prompt = _("コマンド: ウェイト量(msec)", "Command: Delay Factor(msec)");
+            const auto new_delay_factor = input_integer(prompt, 0, 1000, delay_factor);
+            if (new_delay_factor.has_value()) {
+                delay_factor = new_delay_factor.value();
+            }
+
             clear_from(18);
             break;
         }
@@ -587,7 +591,7 @@ void do_cmd_options(PlayerType *player_ptr)
                 if (k == ESCAPE) {
                     break;
                 } else if (k == '?') {
-                    (void)show_file(player_ptr, true, _("joption.txt#Hitpoint", "option.txt#Hitpoint"), nullptr, 0, 0);
+                    (void)show_file(player_ptr, true, _("joption.txt#Hitpoint", "option.txt#Hitpoint"), 0, 0);
                     term_clear();
                 } else if (isdigit(k)) {
                     hitpoint_warn = D2I(k);
@@ -609,7 +613,7 @@ void do_cmd_options(PlayerType *player_ptr)
                 if (k == ESCAPE) {
                     break;
                 } else if (k == '?') {
-                    (void)show_file(player_ptr, true, _("joption.txt#Manapoint", "option.txt#Manapoint"), nullptr, 0, 0);
+                    (void)show_file(player_ptr, true, _("joption.txt#Manapoint", "option.txt#Manapoint"), 0, 0);
                     term_clear();
                 } else if (isdigit(k)) {
                     mana_warn = D2I(k);
@@ -621,7 +625,7 @@ void do_cmd_options(PlayerType *player_ptr)
             break;
         }
         case '?':
-            (void)show_file(player_ptr, true, _("joption.txt", "option.txt"), nullptr, 0, 0);
+            (void)show_file(player_ptr, true, _("joption.txt", "option.txt"), 0, 0);
             term_clear();
             break;
         default: {
@@ -634,7 +638,7 @@ void do_cmd_options(PlayerType *player_ptr)
     }
 
     screen_load();
-    player_ptr->redraw |= (PR_EQUIPPY);
+    RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::EQUIPPY);
 }
 
 /*!
@@ -647,11 +651,10 @@ void do_cmd_options_aux(PlayerType *player_ptr, game_option_types page, concptr 
 {
     char ch;
     int i, k = 0, n = 0, l;
-    int opt[24];
-    char buf[80];
+    int opt[MAIN_TERM_MIN_ROWS]{};
     bool browse_only = (page == OPT_PAGE_BIRTH) && w_ptr->character_generated && (!w_ptr->wizard || !allow_debug_opts);
 
-    for (i = 0; i < 24; i++) {
+    for (i = 0; i < MAIN_TERM_MIN_ROWS; i++) {
         opt[i] = 0;
     }
 
@@ -664,12 +667,11 @@ void do_cmd_options_aux(PlayerType *player_ptr, game_option_types page, concptr 
     term_clear();
     while (true) {
         DIRECTION dir;
-        sprintf(buf, _("%s (リターン:次, %sESC:終了, ?:ヘルプ) ", "%s (RET:next, %s, ?:help) "), info,
-            browse_only ? _("", "ESC:exit") : _("y/n:変更, ", "y/n:change, ESC:accept"));
-        prt(buf, 0, 0);
+        constexpr auto command = _("%s (リターン:次, %sESC:終了, ?:ヘルプ) ", "%s (RET:next, %s, ?:help) ");
+        prt(format(command, info, browse_only ? _("", "ESC:exit") : _("y/n:変更, ", "y/n:change, ESC:accept")), 0, 0);
         if (page == OPT_PAGE_AUTODESTROY) {
-            c_prt(TERM_YELLOW, _("以下のオプションは、簡易自動破壊を使用するときのみ有効", "Following options will protect items from easy auto-destroyer."), 6,
-                _(6, 3));
+            constexpr auto mes = _("以下のオプションは、簡易自動破壊を使用するときのみ有効", "Following options will protect items from easy auto-destroyer.");
+            c_prt(TERM_YELLOW, mes, 6, _(6, 3));
         }
 
         for (i = 0; i < n; i++) {
@@ -678,12 +680,12 @@ void do_cmd_options_aux(PlayerType *player_ptr, game_option_types page, concptr 
                 a = TERM_L_BLUE;
             }
 
-            sprintf(buf, "%-48s: %s (%.19s)", option_info[opt[i]].o_desc, (*option_info[opt[i]].o_var ? _("はい  ", "yes") : _("いいえ", "no ")),
-                option_info[opt[i]].o_text);
+            const auto reply = *option_info[opt[i]].o_var ? _("はい  ", "yes") : _("いいえ", "no ");
+            const auto label = format("%-48s: %s (%.19s)", option_info[opt[i]].o_desc, reply, option_info[opt[i]].o_text);
             if ((page == OPT_PAGE_AUTODESTROY) && i > 2) {
-                c_prt(a, buf, i + 5, 0);
+                c_prt(a, label, i + 5, 0);
             } else {
-                c_prt(a, buf, i + 2, 0);
+                c_prt(a, label, i + 2, 0);
             }
         }
 
@@ -744,8 +746,7 @@ void do_cmd_options_aux(PlayerType *player_ptr, game_option_types page, concptr 
             break;
         }
         case '?': {
-            strnfmt(buf, sizeof(buf), _("joption.txt#%s", "option.txt#%s"), option_info[opt[k]].o_text);
-            (void)show_file(player_ptr, true, buf, nullptr, 0, 0);
+            (void)show_file(player_ptr, true, std::string(_("joption.txt#", "option.txt#")).append(option_info[opt[k]].o_text), 0, 0);
             term_clear();
             break;
         }

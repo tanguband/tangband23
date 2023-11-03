@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 荒野マップの生成とルール管理 / Wilderness generation
  * @date 2014/02/13
  * @author
@@ -52,7 +52,7 @@
 constexpr auto MAX_FEAT_IN_TERRAIN = 18;
 
 std::vector<std::vector<wilderness_type>> wilderness;
-bool generate_encounter;
+static bool generate_encounter;
 
 struct border_type {
     int16_t north[MAX_WID];
@@ -122,14 +122,12 @@ void set_floor_and_wall(DUNGEON_IDX type)
     }
 
     cur_type = type;
-    dungeon_type *d_ptr = &dungeons_info[type];
-
-    set_floor_and_wall_aux(feat_ground_type, d_ptr->floor);
-    set_floor_and_wall_aux(feat_wall_type, d_ptr->fill);
-
-    feat_wall_outer = d_ptr->outer_wall;
-    feat_wall_inner = d_ptr->inner_wall;
-    feat_wall_solid = d_ptr->outer_wall;
+    const auto &dungeon = dungeons_info[type];
+    set_floor_and_wall_aux(feat_ground_type, dungeon.floor);
+    set_floor_and_wall_aux(feat_wall_type, dungeon.fill);
+    feat_wall_outer = dungeon.outer_wall;
+    feat_wall_inner = dungeon.inner_wall;
+    feat_wall_solid = dungeon.outer_wall;
 }
 
 /*!
@@ -257,7 +255,7 @@ static void generate_wilderness_area(FloorType *floor_ptr, int terrain, uint32_t
         return;
     }
 
-    const auto state_backup = w_ptr->rng.get_state();
+    const auto rng_backup = w_ptr->rng;
     w_ptr->rng.set_state(seed);
     int table_size = sizeof(terrain_table[0]) / sizeof(int16_t);
     if (!corner) {
@@ -277,7 +275,7 @@ static void generate_wilderness_area(FloorType *floor_ptr, int terrain, uint32_t
         floor_ptr->grid_array[MAX_HGT - 2][1].feat = terrain_table[terrain][floor_ptr->grid_array[MAX_HGT - 2][1].feat];
         floor_ptr->grid_array[1][MAX_WID - 2].feat = terrain_table[terrain][floor_ptr->grid_array[1][MAX_WID - 2].feat];
         floor_ptr->grid_array[MAX_HGT - 2][MAX_WID - 2].feat = terrain_table[terrain][floor_ptr->grid_array[MAX_HGT - 2][MAX_WID - 2].feat];
-        w_ptr->rng.set_state(state_backup);
+        w_ptr->rng = rng_backup;
         return;
     }
 
@@ -297,7 +295,7 @@ static void generate_wilderness_area(FloorType *floor_ptr, int terrain, uint32_t
         }
     }
 
-    w_ptr->rng.set_state(state_backup);
+    w_ptr->rng = rng_backup;
 }
 
 /*!
@@ -381,13 +379,13 @@ static void generate_area(PlayerType *player_ptr, POSITION y, POSITION x, bool i
         return;
     }
 
-    const auto state_backup = w_ptr->rng.get_state();
+    const auto rng_backup = w_ptr->rng;
     w_ptr->rng.set_state(wilderness[y][x].seed);
     int dy = rand_range(6, floor_ptr->height - 6);
     int dx = rand_range(6, floor_ptr->width - 6);
     floor_ptr->grid_array[dy][dx].feat = feat_entrance;
     floor_ptr->grid_array[dy][dx].special = wilderness[y][x].entrance;
-    w_ptr->rng.set_state(state_backup);
+    w_ptr->rng = rng_backup;
 }
 
 /*!
@@ -593,9 +591,9 @@ void wilderness_gen(PlayerType *player_ptr)
     generate_encounter = false;
     set_floor_and_wall(0);
     auto &quest_list = QuestList::get_instance();
-    for (auto &[q_idx, q_ref] : quest_list) {
-        if (q_ref.status == QuestStatusType::REWARDED) {
-            q_ref.status = QuestStatusType::FINISHED;
+    for (auto &[q_idx, quest] : quest_list) {
+        if (quest.status == QuestStatusType::REWARDED) {
+            quest.status = QuestStatusType::FINISHED;
         }
     }
 }
@@ -743,7 +741,7 @@ parse_error_type parse_line_wilderness(PlayerType *player_ptr, char *buf, int xm
             wilderness[*y][*x].level = w_letter[id].level;
             wilderness[*y][*x].town = w_letter[id].town;
             wilderness[*y][*x].road = w_letter[id].road;
-            strcpy(town_info[w_letter[id].town].name, w_letter[id].name);
+            towns_info[w_letter[id].town].name = w_letter[id].name;
         }
 
         (*y)++;
@@ -805,19 +803,6 @@ void seed_wilderness(void)
             wilderness[y][x].entrance = 0;
         }
     }
-}
-
-/*!
- * @brief ゲーム開始時の荒野初期化メインルーチン /
- * Initialize wilderness array
- * @return エラーコード
- */
-errr init_wilderness(void)
-{
-    wilderness.assign(w_ptr->max_wild_y, std::vector<wilderness_type>(w_ptr->max_wild_x));
-
-    generate_encounter = false;
-    return 0;
 }
 
 /*!
@@ -887,6 +872,11 @@ void init_wilderness_terrains(void)
         MAX_FEAT_IN_TERRAIN - 8);
 }
 
+void init_wilderness_encounter()
+{
+    generate_encounter = false;
+}
+
 /*!
  * @brief 荒野から広域マップへの切り替え処理 /
  * Initialize arrays for wilderness terrains
@@ -937,7 +927,7 @@ bool change_wild_mode(PlayerType *player_ptr, bool encount)
 
     if (has_pet) {
         concptr msg = _("ペットを置いて広域マップに入りますか？", "Do you leave your pets behind? ");
-        if (!get_check_strict(player_ptr, msg, CHECK_OKAY_CANCEL)) {
+        if (!input_check_strict(player_ptr, msg, UserCheck::OKAY_CANCEL)) {
             energy.reset_player_turn();
             return false;
         }

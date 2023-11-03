@@ -1,10 +1,11 @@
-﻿#pragma once
+#pragma once
 
 #include "monster/monster-flag-types.h"
 #include "monster/monster-timed-effect-types.h"
 #include "monster/smart-learn-types.h"
 #include "object/object-index-list.h"
 #include "util/flag-group.h"
+#include <string>
 
 /*!
  * @brief Monster information, for a specific monster.
@@ -47,21 +48,29 @@ public:
     ObjectIndexList hold_o_idx_list{}; /*!< モンスターが所持しているアイテムのリスト / Object list being held (if any) */
     POSITION target_y{}; /*!< モンスターの攻撃目標対象Y座標 / Can attack !los player */
     POSITION target_x{}; /*!< モンスターの攻撃目標対象X座標 /  Can attack !los player */
-    ushort nickname{}; /*!< ペットに与えられた名前の保存先文字列オフセット Monster's Nickname */
+    std::string nickname{}; /*!< ペットに与えられた名前 / Monster's Nickname */
     EXP exp{}; /*!< モンスターの現在所持経験値 */
 
     /* TODO: クローン、ペット、有効化は意義が異なるので別変数に切り離すこと。save/loadのバージョン更新が面倒そうだけど */
     EnumClassFlagGroup<MonsterSmartLearnType> smart{}; /*!< モンスターのプレイヤーに対する学習状態 / Field for "smart_learn" - Some bit-flags for the "smart" field */
     MONSTER_IDX parent_m_idx{}; /*!< 召喚主のモンスターID */
 
+    static bool check_sub_alignments(const byte sub_align1, const byte sub_align2);
+
     bool is_friendly() const;
     bool is_pet() const;
     bool is_hostile() const;
+    bool is_hostile_to_melee(const MonsterEntity &other) const;
+    bool is_hostile_align(const byte other_sub_align) const;
+    bool is_named() const;
+    bool is_named_pet() const;
     bool is_original_ap() const;
     bool is_mimicry() const;
     bool is_valid() const;
-    MonsterRaceId get_real_r_idx() const;
-    MonsterRaceInfo &get_real_r_ref() const;
+    MonsterRaceId get_real_monrace_id() const;
+    MonsterRaceInfo &get_real_monrace() const;
+    MonsterRaceInfo &get_appearance_monrace() const;
+    MonsterRaceInfo &get_monrace() const;
     short get_remaining_sleep() const;
     short get_remaining_acceleration() const;
     short get_remaining_deceleration() const;
@@ -69,6 +78,7 @@ public:
     short get_remaining_confusion() const;
     short get_remaining_fear() const;
     short get_remaining_invulnerability() const;
+    bool is_dead() const;
     bool is_asleep() const;
     bool is_accelerated() const;
     bool is_decelerated() const;
@@ -77,4 +87,10 @@ public:
     bool is_fearful() const;
     bool is_invulnerable() const;
     byte get_temporary_speed() const;
+    bool has_living_flag(bool is_apperance = false) const;
+    bool is_explodable() const;
+    std::string get_died_message() const;
+    std::pair<TERM_COLOR, int> get_hp_bar_data() const;
+
+    void set_hostile();
 };

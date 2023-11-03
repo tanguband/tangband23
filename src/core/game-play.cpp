@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ゲームプレイのメインルーチン
  * @date 2020/05/10
  * @author Hourier
@@ -18,7 +18,6 @@
 #include "core/asking-player.h"
 #include "core/game-closer.h"
 #include "core/player-processor.h"
-#include "core/player-update-types.h"
 #include "core/score-util.h"
 #include "core/scores.h"
 #include "core/speed-table.h"
@@ -26,7 +25,7 @@
 #include "core/visuals-reseter.h"
 #include "core/window-redrawer.h"
 #include "dungeon/dungeon-processor.h"
-#include "flavor/object-flavor.h"
+#include "dungeon/quest.h"
 #include "floor/cave.h"
 #include "floor/floor-changer.h"
 #include "floor/floor-events.h"
@@ -43,7 +42,6 @@
 #include "grid/grid.h"
 #include "info-reader/fixed-map-parser.h"
 #include "io/files-util.h"
-#include "io/inet.h"
 #include "io/input-key-acceptor.h"
 #include "io/input-key-processor.h"
 #include "io/read-pref-file.h"
@@ -51,6 +49,7 @@
 #include "io/screen-util.h"
 #include "io/signal-handlers.h"
 #include "io/write-diary.h"
+#include "item-info/flavor-initializer.h"
 #include "load/load.h"
 #include "main/sound-of-music.h"
 #include "market/arena-info-table.h"
@@ -81,15 +80,18 @@
 #include "store/store-util.h"
 #include "store/store.h"
 #include "sv-definition/sv-weapon-types.h"
+#include "system/angband-system.h"
 #include "system/angband-version.h"
 #include "system/floor-type-definition.h"
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/target-checker.h"
 #include "term/gameterm.h"
 #include "term/screen-processor.h"
+#include "term/z-form.h"
 #include "util/angband-files.h"
 #include "view/display-messages.h"
 #include "view/display-player.h"
@@ -103,7 +105,7 @@ static void restore_windows(PlayerType *player_ptr)
     w_ptr->character_icky_depth = 1;
     term_activate(angband_terms[0]);
     angband_terms[0]->resize_hook = resize_map;
-    for (auto i = 0U; i < angband_terms.size(); ++i) {
+    for (auto i = 1U; i < angband_terms.size(); ++i) {
         if (angband_terms[i]) {
             angband_terms[i]->resize_hook = redraw_window;
         }
@@ -118,24 +120,29 @@ static void send_waiting_record(PlayerType *player_ptr)
         return;
     }
 
-    char buf[1024];
-    if (!get_check_strict(player_ptr, _("待機していたスコア登録を今行ないますか？", "Do you register score now? "), CHECK_NO_HISTORY)) {
+    if (!input_check_strict(player_ptr, _("待機していたスコア登録を今行ないますか？", "Do you register score now? "), UserCheck::NO_HISTORY)) {
         quit(0);
     }
 
-    player_ptr->update |= (PU_BONUS | PU_HP | PU_MANA | PU_SPELLS);
+    static constexpr auto flags = {
+        StatusRecalculatingFlag::BONUS,
+        StatusRecalculatingFlag::HP,
+        StatusRecalculatingFlag::MP,
+        StatusRecalculatingFlag::SPELLS,
+    };
+    RedrawingFlagsUpdater::get_instance().set_flags(flags);
     update_creature(player_ptr);
     player_ptr->is_dead = true;
     w_ptr->start_time = (uint32_t)time(nullptr);
     signals_ignore_tstp();
     w_ptr->character_icky_depth = 1;
-    path_build(buf, sizeof(buf), ANGBAND_DIR_APEX, "scores.raw");
-    highscore_fd = fd_open(buf, O_RDWR);
+    const auto &path = path_build(ANGBAND_DIR_APEX, "scores.raw");
+    highscore_fd = fd_open(path, O_RDWR);
 
     /* 町名消失バグ対策(#38205)のためここで世界マップ情報を読み出す */
     parse_fixed_map(player_ptr, WILDERNESS_DEFINITION, 0, 0, w_ptr->max_wild_y, w_ptr->max_wild_x);
     bool success = send_world_score(player_ptr, true);
-    if (!success && !get_check_strict(player_ptr, _("スコア登録を諦めますか？", "Do you give up score registration? "), CHECK_NO_HISTORY)) {
+    if (!success && !input_check_strict(player_ptr, _("スコア登録を諦めますか？", "Do you give up score registration? "), UserCheck::NO_HISTORY)) {
         prt(_("引き続き待機します。", "standing by for future registration..."), 0, 0);
         (void)inkey();
     } else {
@@ -177,10 +184,11 @@ static void init_world_floor_info(PlayerType *player_ptr)
 {
     w_ptr->character_dungeon = false;
     auto *floor_ptr = player_ptr->current_floor_ptr;
+    floor_ptr->reset_dungeon_index();
     floor_ptr->dun_level = 0;
     floor_ptr->quest_number = QuestId::NONE;
     floor_ptr->inside_arena = false;
-    player_ptr->phase_out = false;
+    AngbandSystem::get_instance().set_phase_out(false);
     write_level = true;
     w_ptr->seed_flavor = randint0(0x10000000);
     w_ptr->seed_town = randint0(0x10000000);
@@ -202,7 +210,8 @@ static void init_world_floor_info(PlayerType *player_ptr)
 static void restore_world_floor_info(PlayerType *player_ptr)
 {
     write_level = false;
-    exe_write_diary(player_ptr, DIARY_GAMESTART, 1, _("                            ----ゲーム再開----", "                            --- Restarted Game ---"));
+    constexpr auto mes = _("                            ----ゲーム再開----", "                            --- Restarted Game ---");
+    exe_write_diary(player_ptr, DiaryKind::GAMESTART, 1, mes);
 
     if (player_ptr->riding == -1) {
         player_ptr->riding = 0;
@@ -231,7 +240,7 @@ static void reset_world_info(PlayerType *player_ptr)
 static void generate_wilderness(PlayerType *player_ptr)
 {
     auto *floor_ptr = player_ptr->current_floor_ptr;
-    if ((floor_ptr->dun_level == 0) && inside_quest(floor_ptr->quest_number)) {
+    if ((floor_ptr->dun_level == 0) && floor_ptr->is_in_quest()) {
         return;
     }
 
@@ -271,8 +280,8 @@ static void generate_world(PlayerType *player_ptr, bool new_game)
     panel_row_min = floor_ptr->height;
     panel_col_min = floor_ptr->width;
 
-    set_floor_and_wall(player_ptr->dungeon_idx);
-    flavor_init();
+    set_floor_and_wall(floor_ptr->dungeon_idx);
+    initialize_items_flavor();
     prt(_("お待ち下さい...", "Please wait..."), 0, 0);
     term_fresh();
     generate_wilderness(player_ptr);
@@ -283,15 +292,14 @@ static void generate_world(PlayerType *player_ptr, bool new_game)
         return;
     }
 
-    char buf[80];
-    sprintf(buf, _("%sに降り立った。", "arrived in %s."), map_name(player_ptr));
-    exe_write_diary(player_ptr, DIARY_DESCRIPTION, 0, buf);
+    const auto mes = format(_("%sに降り立った。", "arrived in %s."), map_name(player_ptr).data());
+    exe_write_diary(player_ptr, DiaryKind::DESCRIPTION, 0, mes);
 }
 
 static void init_io(PlayerType *player_ptr)
 {
     term_xtra(TERM_XTRA_REACT, 0);
-    player_ptr->window_flags = PW_ALL;
+    RedrawingFlagsUpdater::get_instance().fill_up_sub_flags();
     handle_stuff(player_ptr);
     if (arg_force_original) {
         rogue_like_commands = false;
@@ -311,7 +319,7 @@ static void init_riding_pet(PlayerType *player_ptr, bool new_game)
 
     MonsterRaceId pet_r_idx = pc.equals(PlayerClassType::CAVALRY) ? MonsterRaceId::HORSE : MonsterRaceId::YASE_HORSE;
     auto *r_ptr = &monraces_info[pet_r_idx];
-    place_monster_aux(player_ptr, 0, player_ptr->y, player_ptr->x - 1, pet_r_idx, (PM_FORCE_PET | PM_NO_KAGE));
+    place_specific_monster(player_ptr, 0, player_ptr->y, player_ptr->x - 1, pet_r_idx, (PM_FORCE_PET | PM_NO_KAGE));
     auto *m_ptr = &player_ptr->current_floor_ptr->m_list[hack_m_idx_ii];
     m_ptr->mspeed = r_ptr->speed;
     m_ptr->maxhp = r_ptr->hdice * (r_ptr->hside + 1) / 2;
@@ -329,7 +337,7 @@ static void decide_arena_death(PlayerType *player_ptr)
 
     auto *floor_ptr = player_ptr->current_floor_ptr;
     if (!floor_ptr->inside_arena) {
-        if ((w_ptr->wizard || cheat_live) && !get_check(_("死にますか? ", "Die? "))) {
+        if ((w_ptr->wizard || cheat_live) && !input_check(_("死にますか? ", "Die? "))) {
             cheat_death(player_ptr);
         }
 

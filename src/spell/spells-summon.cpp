@@ -1,4 +1,4 @@
-﻿#include "spell/spells-summon.h"
+#include "spell/spells-summon.h"
 #include "avatar/avatar.h"
 #include "effect/spells-effect-util.h"
 #include "floor/floor-object.h"
@@ -216,11 +216,10 @@ bool cast_summon_octopus(PlayerType *player_ptr)
  */
 bool cast_summon_greater_demon(PlayerType *player_ptr)
 {
-    concptr q = _("どの死体を捧げますか? ", "Sacrifice which corpse? ");
-    concptr s = _("捧げられる死体を持っていない。", "You have nothing to sacrifice.");
-    OBJECT_IDX item;
-    ItemEntity *o_ptr;
-    o_ptr = choose_object(player_ptr, &item, q, s, (USE_INVEN | USE_FLOOR), FuncItemTester(&ItemEntity::is_offerable));
+    constexpr auto q = _("どの死体を捧げますか? ", "Sacrifice which corpse? ");
+    constexpr auto s = _("捧げられる死体を持っていない。", "You have nothing to sacrifice.");
+    short i_idx;
+    const auto *o_ptr = choose_object(player_ptr, &i_idx, q, s, (USE_INVEN | USE_FLOOR), FuncItemTester(&ItemEntity::is_offerable));
     if (!o_ptr) {
         return false;
     }
@@ -232,7 +231,7 @@ bool cast_summon_greater_demon(PlayerType *player_ptr)
     if (summon_specific(player_ptr, -1, player_ptr->y, player_ptr->x, summon_lev, SUMMON_HI_DEMON, (PM_ALLOW_GROUP | PM_FORCE_PET))) {
         msg_print(_("硫黄の悪臭が充満した。", "The area fills with a stench of sulphur and brimstone."));
         msg_print(_("「ご用でございますか、ご主人様」", "'What is thy bidding... Master?'"));
-        vary_item(player_ptr, item, -1);
+        vary_item(player_ptr, i_idx, -1);
     } else {
         msg_print(_("悪魔は現れなかった。", "No Greater Demon arrives."));
     }
@@ -294,7 +293,7 @@ int summon_cyber(PlayerType *player_ptr, MONSTER_IDX who, POSITION y, POSITION x
 void mitokohmon(PlayerType *player_ptr)
 {
     int count = 0;
-    concptr sukekakusan = "";
+    [[maybe_unused]] concptr sukekakusan = "";
     if (summon_named_creature(player_ptr, 0, player_ptr->y, player_ptr->x, MonsterRaceId::SUKE, PM_FORCE_PET)) {
         msg_print(_("『助さん』が現れた。", "Suke-san apperars."));
         sukekakusan = "Suke-san";
@@ -333,9 +332,9 @@ void mitokohmon(PlayerType *player_ptr)
         return;
     }
 
-    msg_format(
-        _("「者ども、ひかえおろう！！！このお方をどなたとこころえる。」", "%^s says 'WHO do you think this person is! Bow your head, down to your knees!'"),
-        sukekakusan);
+    msg_print(_(
+        "「者ども、ひかえおろう！！！このお方をどなたとこころえる。」",
+        format("%s^ says 'WHO do you think this person is! Bow your head, down to your knees!'", sukekakusan)));
     sukekaku = true;
     stun_monsters(player_ptr, 120);
     confuse_monsters(player_ptr, 120);
@@ -457,7 +456,7 @@ void cast_invoke_spirits(PlayerType *player_ptr, DIRECTION dir)
 {
     PLAYER_LEVEL plev = player_ptr->lev;
     int die = randint1(100) + plev / 5;
-    int vir = virtue_number(player_ptr, V_CHANCE);
+    int vir = virtue_number(player_ptr, Virtue::CHANCE);
 
     if (vir != 0) {
         if (player_ptr->virtues[vir - 1] > 0) {
@@ -473,7 +472,7 @@ void cast_invoke_spirits(PlayerType *player_ptr, DIRECTION dir)
 
     msg_print(_("あなたは死者たちの力を招集した...", "You call on the power of the dead..."));
     if (die < 26) {
-        chg_virtue(player_ptr, V_CHANCE, 1);
+        chg_virtue(player_ptr, Virtue::CHANCE, 1);
     }
 
     if (die > 100) {
@@ -486,7 +485,7 @@ void cast_invoke_spirits(PlayerType *player_ptr, DIRECTION dir)
 
         (void)summon_specific(player_ptr, 0, player_ptr->y, player_ptr->x, player_ptr->current_floor_ptr->dun_level, SUMMON_UNDEAD,
             (PM_ALLOW_GROUP | PM_ALLOW_UNIQUE | PM_NO_PET));
-        chg_virtue(player_ptr, V_UNLIFE, 1);
+        chg_virtue(player_ptr, Virtue::UNLIFE, 1);
     } else if (die < 14) {
         msg_print(_("名状し難い邪悪な存在があなたの心を通り過ぎて行った...", "An unnamable evil brushes against your mind..."));
         (void)bss.mod_fear(randint1(4) + 4);

@@ -1,4 +1,4 @@
-﻿#include "effect/effect-player-switcher.h"
+#include "effect/effect-player-switcher.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-player-curse.h"
 #include "effect/effect-player-oldies.h"
@@ -36,6 +36,7 @@ void switch_effects_player(PlayerType *player_ptr, EffectPlayerType *ep_ptr)
         effect_player_nuke(player_ptr, ep_ptr);
         return;
     case AttributeType::MISSILE:
+    case AttributeType::MONSTER_MELEE:
         effect_player_missile(player_ptr, ep_ptr);
         return;
     case AttributeType::HOLY_FIRE:

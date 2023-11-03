@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 保存された階の管理 / management of the saved floor
  * @date 2014/01/04
  * @author
@@ -21,8 +21,16 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "term/z-form.h"
 #include "util/angband-files.h"
 #include "view/display-messages.h"
+
+static std::string get_saved_floor_name(int level)
+{
+    char ext[32];
+    strnfmt(ext, sizeof(ext), ".F%02d", level);
+    return savefile.string().append(ext);
+}
 
 static void check_saved_tmp_files(const int fd, bool *force)
 {
@@ -39,7 +47,7 @@ static void check_saved_tmp_files(const int fd, bool *force)
     msg_print(_("変愚蛮怒を二重に起動していないか確認してください。", "Make sure you are not running two game processes simultaneously."));
     msg_print(_("過去に変愚蛮怒がクラッシュした場合は一時ファイルを", "If the temporary files are garbage from an old crashed process, "));
     msg_print(_("強制的に削除して実行を続けられます。", "you can delete them safely."));
-    if (!get_check(_("強制的に削除してもよろしいですか？", "Do you delete the old temporary files? "))) {
+    if (!input_check(_("強制的に削除してもよろしいですか？", "Do you delete the old temporary files? "))) {
         quit(_("実行中止", "Aborted."));
     }
 
@@ -54,17 +62,15 @@ static void check_saved_tmp_files(const int fd, bool *force)
  */
 void init_saved_floors(PlayerType *player_ptr, bool force)
 {
-    char floor_savefile[sizeof(savefile) + 32];
-    int fd = -1;
-    BIT_FLAGS mode = 0644;
+    auto fd = -1;
     for (int i = 0; i < MAX_SAVED_FLOORS; i++) {
         saved_floor_type *sf_ptr = &saved_floors[i];
-        sprintf(floor_savefile, "%s.F%02d", savefile, i);
-        safe_setuid_grab(player_ptr);
-        fd = fd_make(floor_savefile, mode);
+        auto floor_savefile = get_saved_floor_name(i);
+        safe_setuid_grab();
+        fd = fd_make(floor_savefile);
         safe_setuid_drop();
         check_saved_tmp_files(fd, &force);
-        safe_setuid_grab(player_ptr);
+        safe_setuid_grab();
         (void)fd_kill(floor_savefile);
         safe_setuid_drop();
         sf_ptr->floor_id = 0;
@@ -84,16 +90,14 @@ void init_saved_floors(PlayerType *player_ptr, bool force)
  */
 void clear_saved_floor_files(PlayerType *player_ptr)
 {
-    char floor_savefile[sizeof(savefile) + 32];
     for (int i = 0; i < MAX_SAVED_FLOORS; i++) {
         saved_floor_type *sf_ptr = &saved_floors[i];
         if ((sf_ptr->floor_id == 0) || (sf_ptr->floor_id == player_ptr->floor_id)) {
             continue;
         }
 
-        sprintf(floor_savefile, "%s.F%02d", savefile, i);
-        safe_setuid_grab(player_ptr);
-        (void)fd_kill(floor_savefile);
+        safe_setuid_grab();
+        (void)fd_kill(get_saved_floor_name(i));
         safe_setuid_drop();
     }
 }
@@ -126,7 +130,6 @@ saved_floor_type *get_sf_ptr(FLOOR_IDX floor_id)
  */
 void kill_saved_floor(PlayerType *player_ptr, saved_floor_type *sf_ptr)
 {
-    char floor_savefile[sizeof(savefile) + 32];
     if (!sf_ptr || (sf_ptr->floor_id == 0)) {
         return;
     }
@@ -137,9 +140,8 @@ void kill_saved_floor(PlayerType *player_ptr, saved_floor_type *sf_ptr)
         return;
     }
 
-    sprintf(floor_savefile, "%s.F%02d", savefile, (int)sf_ptr->savefile_id);
-    safe_setuid_grab(player_ptr);
-    (void)fd_kill(floor_savefile);
+    safe_setuid_grab();
+    (void)fd_kill(get_saved_floor_name((int)sf_ptr->savefile_id));
     safe_setuid_drop();
     sf_ptr->floor_id = 0;
 }
@@ -218,6 +220,6 @@ void precalc_cur_num_of_pet(PlayerType *player_ptr)
             continue;
         }
 
-        m_ptr->get_real_r_ref().cur_num++;
+        m_ptr->get_real_monrace().cur_num++;
     }
 }

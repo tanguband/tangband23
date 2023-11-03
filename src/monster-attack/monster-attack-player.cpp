@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief モンスターからプレイヤーへの直接攻撃処理
  * @date 2020/05/23
  * @author Hourier
@@ -13,7 +13,6 @@
 #include "combat/combat-options-type.h"
 #include "combat/hallucination-attacks-table.h"
 #include "core/disturbance.h"
-#include "core/player-update-types.h"
 #include "dungeon/dungeon-flag-types.h"
 #include "floor/geometry.h"
 #include "inventory/inventory-slot-types.h"
@@ -53,11 +52,13 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "timed-effect/player-cut.h"
 #include "timed-effect/player-hallucination.h"
 #include "timed-effect/player-stun.h"
 #include "timed-effect/timed-effects.h"
 #include "util/bit-flags-calculator.h"
+#include "util/string-processor.h"
 #include "view/display-messages.h"
 
 /*!
@@ -84,12 +85,12 @@ void MonsterAttackPlayer::make_attack_normal()
         return;
     }
 
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     this->rlev = ((r_ptr->level >= 1) ? r_ptr->level : 1);
-    monster_desc(this->player_ptr, this->m_name, this->m_ptr, 0);
-    monster_desc(this->player_ptr, this->ddesc, this->m_ptr, MD_WRONGDOER_NAME);
+    angband_strcpy(this->m_name, monster_desc(this->player_ptr, this->m_ptr, 0), sizeof(this->m_name));
+    angband_strcpy(this->ddesc, monster_desc(this->player_ptr, this->m_ptr, MD_WRONGDOER_NAME), sizeof(this->ddesc));
     if (PlayerClass(this->player_ptr).samurai_stance_is(SamuraiStanceType::IAI)) {
-        msg_format(_("相手が襲いかかる前に素早く武器を振るった。", "You took sen, drew and cut in one motion before %s moved."), this->m_name);
+        msg_print(_("相手が襲いかかる前に素早く武器を振るった。", format("You took sen, drew and cut in one motion before %s moved.", this->m_name)));
         if (do_cmd_attack(this->player_ptr, this->m_ptr->fy, this->m_ptr->fx, HISSATSU_IAI)) {
             return;
         }
@@ -125,12 +126,12 @@ int MonsterAttackPlayer::stat_value(const int raw)
 
 bool MonsterAttackPlayer::check_no_blow()
 {
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     if (r_ptr->behavior_flags.has(MonsterBehaviorType::NEVER_BLOW)) {
         return false;
     }
 
-    if (dungeons_info[this->player_ptr->dungeon_idx].flags.has(DungeonFeatureType::NO_MELEE)) {
+    if (this->player_ptr->current_floor_ptr->get_dungeon_definition().flags.has(DungeonFeatureType::NO_MELEE)) {
         return false;
     }
 
@@ -143,15 +144,15 @@ bool MonsterAttackPlayer::check_no_blow()
  */
 bool MonsterAttackPlayer::process_monster_blows()
 {
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     for (auto ap_cnt = 0; ap_cnt < MAX_NUM_BLOWS; ap_cnt++) {
         this->obvious = false;
         this->damage = 0;
         this->act = nullptr;
-        this->effect = r_ptr->blow[ap_cnt].effect;
-        this->method = r_ptr->blow[ap_cnt].method;
-        this->d_dice = r_ptr->blow[ap_cnt].d_dice;
-        this->d_side = r_ptr->blow[ap_cnt].d_side;
+        this->effect = r_ptr->blows[ap_cnt].effect;
+        this->method = r_ptr->blows[ap_cnt].method;
+        this->d_dice = r_ptr->blows[ap_cnt].d_dice;
+        this->d_side = r_ptr->blows[ap_cnt].d_side;
 
         if (!this->check_monster_continuous_attack()) {
             break;
@@ -218,7 +219,7 @@ bool MonsterAttackPlayer::check_monster_continuous_attack()
         return false;
     }
 
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     if (this->m_ptr->is_pet() && r_ptr->kind_flags.has(MonsterKindType::UNIQUE) && (this->method == RaceBlowMethodType::EXPLODE)) {
         this->method = RaceBlowMethodType::HIT;
         this->d_dice /= 10;
@@ -267,7 +268,7 @@ bool MonsterAttackPlayer::process_monster_attack_hit()
  */
 bool MonsterAttackPlayer::effect_protecion_from_evil()
 {
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     if ((this->player_ptr->protevil <= 0) || r_ptr->kind_flags.has_not(MonsterKindType::EVIL) || (this->player_ptr->lev < this->rlev) || ((randint0(100) + this->player_ptr->lev) <= 50)) {
         return false;
     }
@@ -277,10 +278,10 @@ bool MonsterAttackPlayer::effect_protecion_from_evil()
     }
 
 #ifdef JP
-    this->abbreviate ? msg_format("撃退した。") : msg_format("%^sは撃退された。", this->m_name);
+    this->abbreviate ? msg_format("撃退した。") : msg_format("%s^は撃退された。", this->m_name);
     this->abbreviate = 1; /* 2回目以降は省略 */
 #else
-    msg_format("%^s is repelled.", this->m_name);
+    msg_format("%s^ is repelled.", this->m_name);
 #endif
 
     return true;
@@ -296,22 +297,22 @@ void MonsterAttackPlayer::describe_silly_attacks()
 #ifdef JP
         this->abbreviate = -1;
 #endif
-        this->act = silly_attacks[randint0(MAX_SILLY_ATTACK)];
+        this->act = rand_choice(silly_attacks);
     }
 
 #ifdef JP
     if (this->abbreviate == 0) {
-        msg_format("%^sに%s", this->m_name, this->act);
+        msg_format("%s^に%s", this->m_name, this->act);
     } else if (this->abbreviate == 1) {
         msg_format("%s", this->act);
     } else {
         /* if (this->abbreviate == -1) */
-        msg_format("%^s%s", this->m_name, this->act);
+        msg_format("%s^%s", this->m_name, this->act);
     }
 
     this->abbreviate = 1; /*2回目以降は省略 */
 #else
-    msg_format("%^s %s%s", this->m_name, this->act, this->do_silly_attack ? " you." : "");
+    msg_format("%s^ %s%s", this->m_name, this->act, this->do_silly_attack ? " you." : "");
 #endif
 }
 
@@ -394,7 +395,7 @@ void MonsterAttackPlayer::monster_explode()
 
     sound(SOUND_EXPLODE);
     MonsterDamageProcessor mdp(this->player_ptr, this->m_idx, this->m_ptr->hp + 1, &this->fear, AttributeType::NONE);
-    if (mdp.mon_take_hit(nullptr)) {
+    if (mdp.mon_take_hit("")) {
         this->blinked = false;
         this->alive = false;
     }
@@ -441,12 +442,12 @@ void MonsterAttackPlayer::describe_attack_evasion()
     if (this->abbreviate) {
         msg_format("%sかわした。", is_suiken ? "奇妙な動きで" : "");
     } else {
-        msg_format("%s%^sの攻撃をかわした。", is_suiken ? "奇妙な動きで" : "", this->m_name);
+        msg_format("%s%s^の攻撃をかわした。", is_suiken ? "奇妙な動きで" : "", this->m_name);
     }
 
     this->abbreviate = 1; /* 2回目以降は省略 */
 #else
-    msg_format("%^s misses you.", this->m_name);
+    msg_format("%s^ misses you.", this->m_name);
 #endif
 }
 
@@ -464,7 +465,7 @@ void MonsterAttackPlayer::gain_armor_exp()
         return;
     }
 
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     auto target_level = r_ptr->level;
     short increment = 0;
     if ((cur / 100) < target_level) {
@@ -473,7 +474,7 @@ void MonsterAttackPlayer::gain_armor_exp()
     }
 
     this->player_ptr->skill_exp[PlayerSkillKindType::SHIELD] = std::min<short>(max, cur + increment);
-    this->player_ptr->update |= (PU_BONUS);
+    RedrawingFlagsUpdater::get_instance().set_flag(StatusRecalculatingFlag::BONUS);
 }
 
 /*!
@@ -489,7 +490,7 @@ void MonsterAttackPlayer::increase_blow_type_seen(const int ap_cnt)
         return;
     }
 
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     if (!this->obvious && (this->damage == 0) && (r_ptr->r_blows[ap_cnt] <= 10)) {
         return;
     }
@@ -506,14 +507,14 @@ void MonsterAttackPlayer::postprocess_monster_blows()
     spell_hex.eyes_on_eyes();
     musou_counterattack(this->player_ptr, this);
     spell_hex.thief_teleport();
-    auto *r_ptr = &monraces_info[this->m_ptr->r_idx];
+    auto *r_ptr = &this->m_ptr->get_monrace();
     if (this->player_ptr->is_dead && (r_ptr->r_deaths < MAX_SHORT) && !this->player_ptr->current_floor_ptr->inside_arena) {
         r_ptr->r_deaths++;
     }
 
     if (this->m_ptr->ml && this->fear && this->alive && !this->player_ptr->is_dead) {
         sound(SOUND_FLEE);
-        msg_format(_("%^sは恐怖で逃げ出した！", "%^s flees in terror!"), this->m_name);
+        msg_format(_("%s^は恐怖で逃げ出した！", "%s^ flees in terror!"), this->m_name);
     }
 
     PlayerClass(this->player_ptr).break_samurai_stance({ SamuraiStanceType::IAI });

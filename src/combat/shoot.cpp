@@ -1,9 +1,7 @@
-﻿#include "combat/shoot.h"
+#include "combat/shoot.h"
 #include "artifact/fixed-art-types.h"
 #include "avatar/avatar.h"
 #include "combat/attack-criticality.h"
-#include "core/player-redraw-types.h"
-#include "core/player-update-types.h"
 #include "core/stuff-handler.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
@@ -40,11 +38,11 @@
 #include "monster/monster-damage.h"
 #include "monster/monster-describer.h"
 #include "monster/monster-info.h"
+#include "monster/monster-pain-describer.h"
 #include "monster/monster-status-setter.h"
 #include "monster/monster-status.h"
 #include "monster/monster-update.h"
 #include "object/object-broken.h"
-#include "object/object-flags.h"
 #include "object/object-info.h"
 #include "object/object-mark-types.h"
 #include "player-base/player-class.h"
@@ -63,6 +61,7 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/projection-path-calculator.h"
 #include "target/target-checker.h"
 #include "target/target-getter.h"
@@ -84,11 +83,9 @@ AttributeFlags shot_attribute(PlayerType *player_ptr, ItemEntity *bow_ptr, ItemE
     AttributeFlags attribute_flags{};
     attribute_flags.set(AttributeType::PLAYER_SHOOT);
 
-    TrFlags flags{};
-    auto arrow_flags = object_flags(arrow_ptr);
-    auto bow_flags = object_flags(bow_ptr);
-
-    flags = bow_flags | arrow_flags;
+    const auto arrow_flags = arrow_ptr->get_flags();
+    const auto bow_flags = bow_ptr->get_flags();
+    const auto flags = bow_flags | arrow_flags;
 
     static const struct snipe_convert_table_t {
         SPELL_IDX snipe_type;
@@ -156,148 +153,146 @@ static MULTIPLY calc_shot_damage_with_slay(
 {
     MULTIPLY mult = 10;
 
-    MonsterRaceInfo *race_ptr = &monraces_info[monster_ptr->r_idx];
+    auto &monrace = monster_ptr->get_monrace();
 
-    TrFlags flags{};
-    auto arrow_flags = object_flags(arrow_ptr);
-    auto bow_flags = object_flags(bow_ptr);
-
-    flags = bow_flags | arrow_flags;
+    const auto arrow_flags = arrow_ptr->get_flags();
+    const auto bow_flags = bow_ptr->get_flags();
+    const auto flags = bow_flags | arrow_flags;
 
     /* Some "weapons" and "ammo" do extra damage */
     switch (arrow_ptr->bi_key.tval()) {
     case ItemKindType::SHOT:
     case ItemKindType::ARROW:
     case ItemKindType::BOLT: {
-        if ((flags.has(TR_SLAY_ANIMAL)) && race_ptr->kind_flags.has(MonsterKindType::ANIMAL)) {
+        if ((flags.has(TR_SLAY_ANIMAL)) && monrace.kind_flags.has(MonsterKindType::ANIMAL)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::ANIMAL);
+                monrace.r_kind_flags.set(MonsterKindType::ANIMAL);
             }
             if (mult < 17) {
                 mult = 17;
             }
         }
 
-        if ((flags.has(TR_KILL_ANIMAL)) && race_ptr->kind_flags.has(MonsterKindType::ANIMAL)) {
+        if ((flags.has(TR_KILL_ANIMAL)) && monrace.kind_flags.has(MonsterKindType::ANIMAL)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::ANIMAL);
+                monrace.r_kind_flags.set(MonsterKindType::ANIMAL);
             }
             if (mult < 27) {
                 mult = 27;
             }
         }
 
-        if ((flags.has(TR_SLAY_EVIL)) && race_ptr->kind_flags.has(MonsterKindType::EVIL)) {
+        if ((flags.has(TR_SLAY_EVIL)) && monrace.kind_flags.has(MonsterKindType::EVIL)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::EVIL);
+                monrace.r_kind_flags.set(MonsterKindType::EVIL);
             }
             if (mult < 15) {
                 mult = 15;
             }
         }
 
-        if ((flags.has(TR_KILL_EVIL)) && race_ptr->kind_flags.has(MonsterKindType::EVIL)) {
+        if ((flags.has(TR_KILL_EVIL)) && monrace.kind_flags.has(MonsterKindType::EVIL)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::EVIL);
+                monrace.r_kind_flags.set(MonsterKindType::EVIL);
             }
             if (mult < 25) {
                 mult = 25;
             }
         }
 
-        if ((flags.has(TR_SLAY_GOOD)) && race_ptr->kind_flags.has(MonsterKindType::GOOD)) {
+        if ((flags.has(TR_SLAY_GOOD)) && monrace.kind_flags.has(MonsterKindType::GOOD)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::GOOD);
+                monrace.r_kind_flags.set(MonsterKindType::GOOD);
             }
             if (mult < 15) {
                 mult = 15;
             }
         }
 
-        if ((flags.has(TR_KILL_GOOD)) && race_ptr->kind_flags.has(MonsterKindType::GOOD)) {
+        if ((flags.has(TR_KILL_GOOD)) && monrace.kind_flags.has(MonsterKindType::GOOD)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::GOOD);
+                monrace.r_kind_flags.set(MonsterKindType::GOOD);
             }
             if (mult < 25) {
                 mult = 25;
             }
         }
 
-        if ((flags.has(TR_SLAY_HUMAN)) && race_ptr->kind_flags.has(MonsterKindType::HUMAN)) {
+        if ((flags.has(TR_SLAY_HUMAN)) && monrace.kind_flags.has(MonsterKindType::HUMAN)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::HUMAN);
+                monrace.r_kind_flags.set(MonsterKindType::HUMAN);
             }
             if (mult < 17) {
                 mult = 17;
             }
         }
 
-        if ((flags.has(TR_KILL_HUMAN)) && race_ptr->kind_flags.has(MonsterKindType::HUMAN)) {
+        if ((flags.has(TR_KILL_HUMAN)) && monrace.kind_flags.has(MonsterKindType::HUMAN)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::HUMAN);
+                monrace.r_kind_flags.set(MonsterKindType::HUMAN);
             }
             if (mult < 27) {
                 mult = 27;
             }
         }
 
-        if ((flags.has(TR_SLAY_UNDEAD)) && race_ptr->kind_flags.has(MonsterKindType::UNDEAD)) {
+        if ((flags.has(TR_SLAY_UNDEAD)) && monrace.kind_flags.has(MonsterKindType::UNDEAD)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::UNDEAD);
+                monrace.r_kind_flags.set(MonsterKindType::UNDEAD);
             }
             if (mult < 20) {
                 mult = 20;
             }
         }
 
-        if ((flags.has(TR_KILL_UNDEAD)) && race_ptr->kind_flags.has(MonsterKindType::UNDEAD)) {
+        if ((flags.has(TR_KILL_UNDEAD)) && monrace.kind_flags.has(MonsterKindType::UNDEAD)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::UNDEAD);
+                monrace.r_kind_flags.set(MonsterKindType::UNDEAD);
             }
             if (mult < 30) {
                 mult = 30;
             }
         }
 
-        if ((flags.has(TR_SLAY_DEMON)) && race_ptr->kind_flags.has(MonsterKindType::DEMON)) {
+        if ((flags.has(TR_SLAY_DEMON)) && monrace.kind_flags.has(MonsterKindType::DEMON)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::DEMON);
+                monrace.r_kind_flags.set(MonsterKindType::DEMON);
             }
             if (mult < 20) {
                 mult = 20;
             }
         }
 
-        if ((flags.has(TR_KILL_DEMON)) && race_ptr->kind_flags.has(MonsterKindType::DEMON)) {
+        if ((flags.has(TR_KILL_DEMON)) && monrace.kind_flags.has(MonsterKindType::DEMON)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::DEMON);
+                monrace.r_kind_flags.set(MonsterKindType::DEMON);
             }
             if (mult < 30) {
                 mult = 30;
             }
         }
 
-        if ((flags.has(TR_SLAY_ORC)) && race_ptr->kind_flags.has(MonsterKindType::ORC)) {
+        if ((flags.has(TR_SLAY_ORC)) && monrace.kind_flags.has(MonsterKindType::ORC)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::ORC);
+                monrace.r_kind_flags.set(MonsterKindType::ORC);
             }
             if (mult < 20) {
                 mult = 20;
             }
         }
 
-        if ((flags.has(TR_KILL_ORC)) && race_ptr->kind_flags.has(MonsterKindType::ORC)) {
+        if ((flags.has(TR_KILL_ORC)) && monrace.kind_flags.has(MonsterKindType::ORC)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::ORC);
+                monrace.r_kind_flags.set(MonsterKindType::ORC);
             }
             if (mult < 30) {
                 mult = 30;
             }
         }
 
-        if ((flags.has(TR_SLAY_TROLL)) && race_ptr->kind_flags.has(MonsterKindType::TROLL)) {
+        if ((flags.has(TR_SLAY_TROLL)) && monrace.kind_flags.has(MonsterKindType::TROLL)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::TROLL);
+                monrace.r_kind_flags.set(MonsterKindType::TROLL);
             }
 
             if (mult < 20) {
@@ -305,45 +300,45 @@ static MULTIPLY calc_shot_damage_with_slay(
             }
         }
 
-        if ((flags.has(TR_KILL_TROLL)) && race_ptr->kind_flags.has(MonsterKindType::TROLL)) {
+        if ((flags.has(TR_KILL_TROLL)) && monrace.kind_flags.has(MonsterKindType::TROLL)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::TROLL);
+                monrace.r_kind_flags.set(MonsterKindType::TROLL);
             }
             if (mult < 30) {
                 mult = 30;
             }
         }
 
-        if ((flags.has(TR_SLAY_GIANT)) && race_ptr->kind_flags.has(MonsterKindType::GIANT)) {
+        if ((flags.has(TR_SLAY_GIANT)) && monrace.kind_flags.has(MonsterKindType::GIANT)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::GIANT);
+                monrace.r_kind_flags.set(MonsterKindType::GIANT);
             }
             if (mult < 20) {
                 mult = 20;
             }
         }
 
-        if ((flags.has(TR_KILL_GIANT)) && race_ptr->kind_flags.has(MonsterKindType::GIANT)) {
+        if ((flags.has(TR_KILL_GIANT)) && monrace.kind_flags.has(MonsterKindType::GIANT)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::GIANT);
+                monrace.r_kind_flags.set(MonsterKindType::GIANT);
             }
             if (mult < 30) {
                 mult = 30;
             }
         }
 
-        if ((flags.has(TR_SLAY_DRAGON)) && race_ptr->kind_flags.has(MonsterKindType::DRAGON)) {
+        if ((flags.has(TR_SLAY_DRAGON)) && monrace.kind_flags.has(MonsterKindType::DRAGON)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::DRAGON);
+                monrace.r_kind_flags.set(MonsterKindType::DRAGON);
             }
             if (mult < 20) {
                 mult = 20;
             }
         }
 
-        if ((flags.has(TR_KILL_DRAGON)) && race_ptr->kind_flags.has(MonsterKindType::DRAGON)) {
+        if ((flags.has(TR_KILL_DRAGON)) && monrace.kind_flags.has(MonsterKindType::DRAGON)) {
             if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                race_ptr->r_kind_flags.set(MonsterKindType::DRAGON);
+                monrace.r_kind_flags.set(MonsterKindType::DRAGON);
             }
             if (mult < 30) {
                 mult = 30;
@@ -359,9 +354,9 @@ static MULTIPLY calc_shot_damage_with_slay(
 
         if (flags.has(TR_BRAND_ACID)) {
             /* Notice immunity */
-            if (race_ptr->resistance_flags.has_any_of(RFR_EFF_IM_ACID_MASK)) {
+            if (monrace.resistance_flags.has_any_of(RFR_EFF_IM_ACID_MASK)) {
                 if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                    race_ptr->r_resistance_flags.set(race_ptr->resistance_flags & RFR_EFF_IM_ACID_MASK);
+                    monrace.r_resistance_flags.set(monrace.resistance_flags & RFR_EFF_IM_ACID_MASK);
                 }
             } else {
                 if (mult < 17) {
@@ -372,9 +367,9 @@ static MULTIPLY calc_shot_damage_with_slay(
 
         if (flags.has(TR_BRAND_ELEC)) {
             /* Notice immunity */
-            if (race_ptr->resistance_flags.has_any_of(RFR_EFF_IM_ELEC_MASK)) {
+            if (monrace.resistance_flags.has_any_of(RFR_EFF_IM_ELEC_MASK)) {
                 if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                    race_ptr->r_resistance_flags.set(race_ptr->resistance_flags & RFR_EFF_IM_ELEC_MASK);
+                    monrace.r_resistance_flags.set(monrace.resistance_flags & RFR_EFF_IM_ELEC_MASK);
                 }
             } else {
                 if (mult < 17) {
@@ -385,19 +380,19 @@ static MULTIPLY calc_shot_damage_with_slay(
 
         if (flags.has(TR_BRAND_FIRE)) {
             /* Notice immunity */
-            if (race_ptr->resistance_flags.has_any_of(RFR_EFF_IM_FIRE_MASK)) {
+            if (monrace.resistance_flags.has_any_of(RFR_EFF_IM_FIRE_MASK)) {
                 if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                    race_ptr->r_resistance_flags.set(race_ptr->resistance_flags & RFR_EFF_IM_FIRE_MASK);
+                    monrace.r_resistance_flags.set(monrace.resistance_flags & RFR_EFF_IM_FIRE_MASK);
                 }
             }
             /* Otherwise, take the damage */
             else {
-                if (race_ptr->resistance_flags.has(MonsterResistanceType::HURT_FIRE)) {
+                if (monrace.resistance_flags.has(MonsterResistanceType::HURT_FIRE)) {
                     if (mult < 25) {
                         mult = 25;
                     }
                     if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                        race_ptr->r_resistance_flags.set(MonsterResistanceType::HURT_FIRE);
+                        monrace.r_resistance_flags.set(MonsterResistanceType::HURT_FIRE);
                     }
                 } else if (mult < 17) {
                     mult = 17;
@@ -407,19 +402,19 @@ static MULTIPLY calc_shot_damage_with_slay(
 
         if (flags.has(TR_BRAND_COLD)) {
             /* Notice immunity */
-            if (race_ptr->resistance_flags.has_any_of(RFR_EFF_IM_COLD_MASK)) {
+            if (monrace.resistance_flags.has_any_of(RFR_EFF_IM_COLD_MASK)) {
                 if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                    race_ptr->r_resistance_flags.set(race_ptr->resistance_flags & RFR_EFF_IM_COLD_MASK);
+                    monrace.r_resistance_flags.set(monrace.resistance_flags & RFR_EFF_IM_COLD_MASK);
                 }
             }
             /* Otherwise, take the damage */
             else {
-                if (race_ptr->resistance_flags.has(MonsterResistanceType::HURT_COLD)) {
+                if (monrace.resistance_flags.has(MonsterResistanceType::HURT_COLD)) {
                     if (mult < 25) {
                         mult = 25;
                     }
                     if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                        race_ptr->r_resistance_flags.set(MonsterResistanceType::HURT_COLD);
+                        monrace.r_resistance_flags.set(MonsterResistanceType::HURT_COLD);
                     }
                 } else if (mult < 17) {
                     mult = 17;
@@ -429,9 +424,9 @@ static MULTIPLY calc_shot_damage_with_slay(
 
         if (flags.has(TR_BRAND_POIS)) {
             /* Notice immunity */
-            if (race_ptr->resistance_flags.has_any_of(RFR_EFF_IM_POISON_MASK)) {
+            if (monrace.resistance_flags.has_any_of(RFR_EFF_IM_POISON_MASK)) {
                 if (is_original_ap_and_seen(player_ptr, monster_ptr)) {
-                    race_ptr->r_resistance_flags.set(race_ptr->resistance_flags & RFR_EFF_IM_POISON_MASK);
+                    monrace.r_resistance_flags.set(monrace.resistance_flags & RFR_EFF_IM_POISON_MASK);
                 }
             }
             /* Otherwise, take the damage */
@@ -444,7 +439,7 @@ static MULTIPLY calc_shot_damage_with_slay(
 
         if ((flags.has(TR_FORCE_WEAPON)) && (player_ptr->csp > (player_ptr->msp / 30))) {
             player_ptr->csp -= (1 + (player_ptr->msp / 30));
-            set_bits(player_ptr->redraw, PR_MANA);
+            RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::MP);
             mult = mult * 5 / 2;
         }
         break;
@@ -464,29 +459,11 @@ static MULTIPLY calc_shot_damage_with_slay(
 }
 
 /*!
- * @brief 射撃処理実行 /
- * Fire an object from the pack or floor.
- * @param item 射撃するオブジェクトの所持ID
+ * @brief 射撃処理実行
+ * @param i_idx 射撃するオブジェクトの所持ID
  * @param bow_ptr 射撃武器のオブジェクト参照ポインタ
- * @details
- * <pre>
- * You may only fire items that "match" your missile launcher.
- * You must use slings + pebbles/shots, bows + arrows, xbows + bolts.
- * See "calc_bonuses()" for more calculations and such.
- * Note that "firing" a missile is MUCH better than "throwing" it.
- * Note: "unseen" monsters are very hard to hit.
- * Objects are more likely to break if they "attempt" to hit a monster.
- * Rangers (with Bows) and Anyone (with "Extra Shots") get extra shots.
- * The "extra shot" code works by decreasing the amount of energy
- * required to make each shot, spreading the shots out over time.
- * Note that when firing missiles, the launcher multiplier is applied
- * after all the bonuses are added in, making multipliers very useful.
- * Note that Bows of "Extra Might" get extra range and an extra bonus
- * for the damage multiplier.
- * Note that Bows of "Extra Shots" give an extra shot.
- * </pre>
  */
-void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPELL_IDX snipe_type)
+void exe_fire(PlayerType *player_ptr, INVENTORY_IDX i_idx, ItemEntity *j_ptr, SPELL_IDX snipe_type)
 {
     POSITION y, x, ny, nx, ty, tx, prev_y, prev_x;
     ItemEntity forge;
@@ -500,10 +477,11 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
     auto stick_to = false;
 
     /* Access the item (if in the pack) */
-    if (item >= 0) {
-        o_ptr = &player_ptr->inventory_list[item];
+    auto *floor_ptr = player_ptr->current_floor_ptr;
+    if (i_idx >= 0) {
+        o_ptr = &player_ptr->inventory_list[i_idx];
     } else {
-        o_ptr = &player_ptr->current_floor_ptr->o_list[0 - item];
+        o_ptr = &floor_ptr->o_list[0 - i_idx];
     }
 
     /* Sniper - Cannot shot a single arrow twice */
@@ -511,8 +489,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
         snipe_type = SP_NONE;
     }
 
-    GAME_TEXT o_name[MAX_NLEN];
-    describe_flavor(player_ptr, o_name, o_ptr, OD_OMIT_PREFIX);
+    const auto item_name = describe_flavor(player_ptr, o_ptr, OD_OMIT_PREFIX);
 
     /* Use the proper number of shots */
     auto thits = player_ptr->num_fire;
@@ -556,7 +533,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
     tdam_base *= tmul;
     tdam_base /= 100;
 
-    auto sniper_data = PlayerClass(player_ptr).get_specific_data<sniper_data_type>();
+    auto sniper_data = PlayerClass(player_ptr).get_specific_data<SniperData>();
     auto sniper_concent = sniper_data ? sniper_data->concent : 0;
 
     /* Base range */
@@ -630,7 +607,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
         /* Single object */
         q_ptr->number = 1;
 
-        vary_item(player_ptr, item, -1);
+        vary_item(player_ptr, i_idx, -1);
 
         sound(SOUND_SHOOT);
         handle_stuff(player_ptr);
@@ -657,7 +634,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
 
             /* Shatter Arrow */
             if (snipe_type == SP_KILL_WALL) {
-                g_ptr = &player_ptr->current_floor_ptr->grid_array[ny][nx];
+                g_ptr = &floor_ptr->grid_array[ny][nx];
 
                 if (g_ptr->cave_has_flag(TerrainCharacteristics::HURT_ROCK) && !g_ptr->m_idx) {
                     if (any_bits(g_ptr->info, (CAVE_MARK))) {
@@ -665,7 +642,13 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                     }
                     /* Forget the wall */
                     reset_bits(g_ptr->info, (CAVE_MARK));
-                    set_bits(player_ptr->update, PU_VIEW | PU_LITE | PU_FLOW | PU_MON_LITE);
+                    static constexpr auto flags = {
+                        StatusRecalculatingFlag::VIEW,
+                        StatusRecalculatingFlag::LITE,
+                        StatusRecalculatingFlag::FLOW,
+                        StatusRecalculatingFlag::MONSTER_LITE,
+                    };
+                    RedrawingFlagsUpdater::get_instance().set_flags(flags);
 
                     /* Destroy the wall */
                     cave_alter_feat(player_ptr, ny, nx, TerrainCharacteristics::HURT_ROCK);
@@ -676,7 +659,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
             }
 
             /* Stopped by walls/doors */
-            if (!cave_has_flag_bold(player_ptr->current_floor_ptr, ny, nx, TerrainCharacteristics::PROJECT) && !player_ptr->current_floor_ptr->grid_array[ny][nx].m_idx) {
+            if (!cave_has_flag_bold(floor_ptr, ny, nx, TerrainCharacteristics::PROJECT) && !floor_ptr->grid_array[ny][nx].m_idx) {
                 break;
             }
 
@@ -685,7 +668,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
 
             /* Sniper */
             if (snipe_type == SP_LITE) {
-                set_bits(player_ptr->current_floor_ptr->grid_array[ny][nx].info, CAVE_GLOW);
+                set_bits(floor_ptr->grid_array[ny][nx].info, CAVE_GLOW);
                 note_spot(player_ptr, ny, nx);
                 lite_spot(player_ptr, ny, nx);
             }
@@ -716,12 +699,13 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
 
             /* Sniper */
             if (snipe_type == SP_KILL_TRAP) {
-                project(player_ptr, 0, 0, ny, nx, 0, AttributeType::KILL_TRAP, (PROJECT_JUMP | PROJECT_HIDE | PROJECT_GRID | PROJECT_ITEM));
+                constexpr auto flags = PROJECT_JUMP | PROJECT_HIDE | PROJECT_GRID | PROJECT_ITEM;
+                project(player_ptr, 0, 0, ny, nx, 0, AttributeType::KILL_TRAP, flags);
             }
 
             /* Sniper */
             if (snipe_type == SP_EVILNESS) {
-                reset_bits(player_ptr->current_floor_ptr->grid_array[ny][nx].info, (CAVE_GLOW | CAVE_MARK));
+                reset_bits(floor_ptr->grid_array[ny][nx].info, (CAVE_GLOW | CAVE_MARK));
                 note_spot(player_ptr, ny, nx);
                 lite_spot(player_ptr, ny, nx);
             }
@@ -734,12 +718,12 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
             y = ny;
 
             /* Monster here, Try to hit it */
-            if (player_ptr->current_floor_ptr->grid_array[y][x].m_idx) {
+            if (floor_ptr->grid_array[y][x].m_idx) {
                 sound(SOUND_SHOOT_HIT);
-                grid_type *c_mon_ptr = &player_ptr->current_floor_ptr->grid_array[y][x];
+                grid_type *c_mon_ptr = &floor_ptr->grid_array[y][x];
 
-                auto *m_ptr = &player_ptr->current_floor_ptr->m_list[c_mon_ptr->m_idx];
-                auto *r_ptr = &monraces_info[m_ptr->r_idx];
+                auto *m_ptr = &floor_ptr->m_list[c_mon_ptr->m_idx];
+                auto *r_ptr = &m_ptr->get_monrace();
 
                 /* Check the visibility */
                 auto visible = m_ptr->ml;
@@ -749,10 +733,10 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
 
                 if (m_ptr->is_asleep()) {
                     if (r_ptr->kind_flags.has_not(MonsterKindType::EVIL) || one_in_(5)) {
-                        chg_virtue(player_ptr, V_COMPASSION, -1);
+                        chg_virtue(player_ptr, Virtue::COMPASSION, -1);
                     }
                     if (r_ptr->kind_flags.has_not(MonsterKindType::EVIL) || one_in_(5)) {
-                        chg_virtue(player_ptr, V_HONOUR, -1);
+                        chg_virtue(player_ptr, Virtue::HONOUR, -1);
                     }
                 }
 
@@ -765,7 +749,7 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                 }
 
                 /* Did we hit it (penalize range) */
-                if (test_hit_fire(player_ptr, chance - cur_dis, m_ptr, m_ptr->ml, o_name)) {
+                if (test_hit_fire(player_ptr, chance - cur_dis, m_ptr, m_ptr->ml, item_name.data())) {
                     bool fear = false;
                     auto tdam = tdam_base; //!< @note 実際に与えるダメージ
                     auto base_dam = tdam; //!< @note 補正前の与えるダメージ(無傷、全ての耐性など)
@@ -776,17 +760,15 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                     /* Handle unseen monster */
                     if (!visible) {
                         /* Invisible monster */
-                        msg_format(_("%sが敵を捕捉した。", "The %s finds a mark."), o_name);
+                        msg_format(_("%sが敵を捕捉した。", "The %s finds a mark."), item_name.data());
                     }
 
                     /* Handle visible monster */
                     else {
-                        GAME_TEXT m_name[MAX_NLEN];
-
                         /* Get "the monster" or "it" */
-                        monster_desc(player_ptr, m_name, m_ptr, 0);
+                        const auto m_name = monster_desc(player_ptr, m_ptr, 0);
 
-                        msg_format(_("%sが%sに命中した。", "The %s hits %s."), o_name, m_name);
+                        msg_format(_("%sが%sに命中した。", "The %s hits %s."), item_name.data(), m_name.data());
 
                         if (m_ptr->ml) {
                             if (!player_ptr->effects()->hallucination()->is_hallucinated()) {
@@ -801,14 +783,12 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                         const auto is_unique = r_ptr->kind_flags.has(MonsterKindType::UNIQUE);
                         const auto fatality = randint1(r_ptr->level / (3 + sniper_concent)) + (8 - sniper_concent);
                         if ((randint1(fatality) == 1) && !is_unique && none_bits(r_ptr->flags7, RF7_UNIQUE2)) {
-                            GAME_TEXT m_name[MAX_NLEN];
-
                             /* Get "the monster" or "it" */
-                            monster_desc(player_ptr, m_name, m_ptr, 0);
+                            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
 
                             tdam = m_ptr->hp + 1;
                             base_dam = tdam;
-                            msg_format(_("%sの急所に突き刺さった！", "Your shot hit a fatal spot of %s!"), m_name);
+                            msg_format(_("%sの急所に突き刺さった！", "Your shot hit a fatal spot of %s!"), m_name.data());
                         } else {
                             tdam = 1;
                             base_dam = tdam;
@@ -844,14 +824,14 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
 
                     /* Sniper */
                     if (snipe_type == SP_HOLYNESS) {
-                        set_bits(player_ptr->current_floor_ptr->grid_array[ny][nx].info, CAVE_GLOW);
+                        set_bits(floor_ptr->grid_array[ny][nx].info, CAVE_GLOW);
                         note_spot(player_ptr, ny, nx);
                         lite_spot(player_ptr, ny, nx);
                     }
 
                     /* Hit the monster, check for death */
                     MonsterDamageProcessor mdp(player_ptr, c_mon_ptr->m_idx, tdam, &fear, attribute_flags);
-                    if (mdp.mon_take_hit(extract_note_dies(m_ptr->get_real_r_idx()))) {
+                    if (mdp.mon_take_hit(m_ptr->get_died_message())) {
                         /* Dead monster */
                     }
 
@@ -859,15 +839,16 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                     else {
                         /* STICK TO */
                         if (q_ptr->is_fixed_artifact() && (sniper_concent == 0)) {
-                            GAME_TEXT m_name[MAX_NLEN];
-
-                            monster_desc(player_ptr, m_name, m_ptr, 0);
+                            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
 
                             stick_to = true;
-                            msg_format(_("%sは%sに突き刺さった！", "%^s is stuck in %s!"), o_name, m_name);
+                            msg_format(_("%sは%sに突き刺さった！", "%s^ is stuck in %s!"), item_name.data(), m_name.data());
                         }
 
-                        message_pain(player_ptr, c_mon_ptr->m_idx, tdam);
+                        if (const auto pain_message = MonsterPainDescriber(player_ptr, c_mon_ptr->m_idx).describe(tdam);
+                            !pain_message.empty()) {
+                            msg_print(pain_message);
+                        }
 
                         /* Anger the monster */
                         if (tdam > 0) {
@@ -875,10 +856,9 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                         }
 
                         if (fear && m_ptr->ml) {
-                            GAME_TEXT m_name[MAX_NLEN];
+                            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
                             sound(SOUND_FLEE);
-                            monster_desc(player_ptr, m_name, m_ptr, 0);
-                            msg_format(_("%^sは恐怖して逃げ出した！", "%^s flees in terror!"), m_name);
+                            msg_format(_("%s^は恐怖して逃げ出した！", "%s^ flees in terror!"), m_name.data());
                         }
 
                         set_target(m_ptr, player_ptr->y, player_ptr->x);
@@ -900,12 +880,12 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                                 mmove2(&ny, &nx, player_ptr->y, player_ptr->x, ty, tx);
 
                                 /* Stopped by wilderness boundary */
-                                if (!in_bounds2(player_ptr->current_floor_ptr, ny, nx)) {
+                                if (!in_bounds2(floor_ptr, ny, nx)) {
                                     break;
                                 }
 
                                 /* Stopped by walls/doors */
-                                if (!player_can_enter(player_ptr, player_ptr->current_floor_ptr->grid_array[ny][nx].feat, 0)) {
+                                if (!player_can_enter(player_ptr, floor_ptr->grid_array[ny][nx].feat, 0)) {
                                     break;
                                 }
 
@@ -914,8 +894,8 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
                                     break;
                                 }
 
-                                player_ptr->current_floor_ptr->grid_array[ny][nx].m_idx = m_idx;
-                                player_ptr->current_floor_ptr->grid_array[oy][ox].m_idx = 0;
+                                floor_ptr->grid_array[ny][nx].m_idx = m_idx;
+                                floor_ptr->grid_array[oy][ox].m_idx = 0;
 
                                 m_ptr->fx = nx;
                                 m_ptr->fy = ny;
@@ -953,19 +933,19 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
         auto j = (hit_body ? breakage_chance(player_ptr, q_ptr, PlayerClass(player_ptr).equals(PlayerClassType::ARCHER), snipe_type) : 0);
 
         if (stick_to) {
-            MONSTER_IDX m_idx = player_ptr->current_floor_ptr->grid_array[y][x].m_idx;
-            auto *m_ptr = &player_ptr->current_floor_ptr->m_list[m_idx];
-            OBJECT_IDX o_idx = o_pop(player_ptr->current_floor_ptr);
+            MONSTER_IDX m_idx = floor_ptr->grid_array[y][x].m_idx;
+            auto *m_ptr = &floor_ptr->m_list[m_idx];
+            OBJECT_IDX o_idx = o_pop(floor_ptr);
 
             if (!o_idx) {
-                msg_format(_("%sはどこかへ行った。", "The %s went somewhere."), o_name);
+                msg_format(_("%sはどこかへ行った。", "The %s went somewhere."), item_name.data());
                 if (q_ptr->is_fixed_artifact()) {
-                    artifacts_info.at(j_ptr->fixed_artifact_idx).is_generated = false;
+                    ArtifactsInfo::get_instance().get_artifact(j_ptr->fixed_artifact_idx).is_generated = false;
                 }
                 return;
             }
 
-            o_ptr = &player_ptr->current_floor_ptr->o_list[o_idx];
+            o_ptr = &floor_ptr->o_list[o_idx];
             o_ptr->copy_from(q_ptr);
 
             /* Forget mark */
@@ -978,8 +958,8 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
             o_ptr->held_m_idx = m_idx;
 
             /* Carry object */
-            m_ptr->hold_o_idx_list.add(player_ptr->current_floor_ptr, o_idx);
-        } else if (cave_has_flag_bold(player_ptr->current_floor_ptr, y, x, TerrainCharacteristics::PROJECT)) {
+            m_ptr->hold_o_idx_list.add(floor_ptr, o_idx);
+        } else if (cave_has_flag_bold(floor_ptr, y, x, TerrainCharacteristics::PROJECT)) {
             /* Drop (or break) near that location */
             (void)drop_near(player_ptr, q_ptr, j, y, x);
         } else {
@@ -995,25 +975,24 @@ void exe_fire(PlayerType *player_ptr, INVENTORY_IDX item, ItemEntity *j_ptr, SPE
 }
 
 /*!
- * @brief プレイヤーからモンスターへの射撃命中判定 /
- * Determine if the player "hits" a monster (normal combat).
+ * @brief プレイヤーからモンスターへの射撃命中判定
  * @param chance 基本命中値
  * @param monster_ptr モンスターの構造体参照ポインタ
  * @param vis 目標を視界に捕らえているならばTRUEを指定
- * @param o_name メッセージ表示時のモンスター名
+ * @param item_name 石川五右衛門専用メッセージ：無効化した矢弾の名前
  * @return 命中と判定された場合TRUEを返す
- * @note Always miss 5%, always hit 5%, otherwise random.
+ * @note 最低命中率5%、最大命中率95%
  */
-bool test_hit_fire(PlayerType *player_ptr, int chance, MonsterEntity *m_ptr, int vis, char *o_name)
+bool test_hit_fire(PlayerType *player_ptr, int chance, MonsterEntity *m_ptr, int vis, std::string_view item_name)
 {
     int k;
     ARMOUR_CLASS ac;
-    auto *r_ptr = &monraces_info[m_ptr->r_idx];
+    auto *r_ptr = &m_ptr->get_monrace();
 
     /* Percentile dice */
     k = randint1(100);
 
-    auto sniper_data = PlayerClass(player_ptr).get_specific_data<sniper_data_type>();
+    auto sniper_data = PlayerClass(player_ptr).get_specific_data<SniperData>();
     auto sniper_concent = sniper_data ? sniper_data->concent : 0;
 
     /* Snipers with high-concentration reduce instant miss percentage.*/
@@ -1053,9 +1032,8 @@ bool test_hit_fire(PlayerType *player_ptr, int chance, MonsterEntity *m_ptr, int
     /* Power competes against armor */
     if (randint0(chance) < (ac * 3 / 4)) {
         if (m_ptr->r_idx == MonsterRaceId::GOEMON && !m_ptr->is_asleep()) {
-            GAME_TEXT m_name[MAX_NLEN];
-            monster_desc(player_ptr, m_name, m_ptr, 0);
-            msg_format(_("%sは%sを斬り捨てた！", "%s cuts down %s!"), m_name, o_name);
+            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
+            msg_format(_("%sは%sを斬り捨てた！", "%s cuts down %s!"), m_name.data(), item_name.data());
         }
         return false;
     }
@@ -1095,7 +1073,7 @@ int critical_shot(PlayerType *player_ptr, WEIGHT weight, int plus_ammo, int plus
     }
 
     PlayerClass pc(player_ptr);
-    const auto sniper_data = pc.get_specific_data<sniper_data_type>();
+    const auto sniper_data = pc.get_specific_data<SniperData>();
     const auto sniper_concent = sniper_data ? sniper_data->concent : 0;
 
     /* Snipers can shot more critically with crossbows */
@@ -1148,7 +1126,7 @@ int calc_crit_ratio_shot(PlayerType *player_ptr, int plus_ammo, int plus_bow)
     }
 
     PlayerClass pc(player_ptr);
-    auto sniper_data = pc.get_specific_data<sniper_data_type>();
+    auto sniper_data = pc.get_specific_data<SniperData>();
     auto sniper_concent = sniper_data ? sniper_data->concent : 0;
 
     /* Snipers can shot more critically with crossbows */

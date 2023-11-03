@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief 自動拾いエディタを表示させる
  * @date 2020/04/26
  * @author Hourier
@@ -13,7 +13,8 @@
 #include "system/player-type-definition.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
-#include "util/buffer-shaper.h"
+#include "view/display-util.h"
+#include <tuple>
 
 #define DESCRIPT_HGT 3
 
@@ -25,7 +26,7 @@ static void process_dirty_expression(PlayerType *player_ptr, text_body_type *tb)
 
     byte state = 0;
     for (int y = 0; tb->lines_list[y]; y++) {
-        concptr s = tb->lines_list[y];
+        auto s = tb->lines_list[y];
         tb->states[y] = state;
 
         if (*s++ != '?') {
@@ -66,7 +67,7 @@ void draw_text_editor(PlayerType *player_ptr, text_body_type *tb)
 {
     int by1 = 0, by2 = 0;
 
-    term_get_size(&tb->wid, &tb->hgt);
+    std::tie(tb->wid, tb->hgt) = term_get_size();
 
     /*
      * Top line (-1), description line (-3), separator (-1)
@@ -119,7 +120,7 @@ void draw_text_editor(PlayerType *player_ptr, text_body_type *tb)
     }
 
     if (tb->dirty_flags & DIRTY_MODE) {
-        char buf[MAX_LINELEN];
+        char buf[MAX_LINELEN]{};
         int sepa_length = tb->wid;
         int j = 0;
         for (; j < sepa_length; j++) {
@@ -216,7 +217,7 @@ void draw_text_editor(PlayerType *player_ptr, text_body_type *tb)
     }
 
     autopick_type an_entry, *entry = &an_entry;
-    concptr str1 = nullptr, str2 = nullptr;
+    std::string str1, str2;
     for (int j = 0; j < DESCRIPT_HGT; j++) {
         term_erase(0, tb->hgt + 2 + j, tb->wid);
     }
@@ -268,10 +269,8 @@ void draw_text_editor(PlayerType *player_ptr, text_body_type *tb)
         }
     } else if (autopick_new_entry(entry, tb->lines_list[tb->cy], false)) {
         char buf[MAX_LINELEN];
-        char temp[MAX_LINELEN];
-        concptr t;
 
-        describe_autopick(buf, entry);
+        describe_autopick(buf, *entry);
 
         if (tb->states[tb->cy] & LSTAT_AUTOREGISTER) {
             strcat(buf, _("この行は後で削除されます。", "  This line will be deleted later."));
@@ -281,22 +280,13 @@ void draw_text_editor(PlayerType *player_ptr, text_body_type *tb)
             strcat(buf, _("この行は現在は無効な状態です。", "  This line is bypassed currently."));
         }
 
-        shape_buffer(buf, 81, temp, sizeof(temp));
-        t = temp;
-        for (int j = 0; j < 3; j++) {
-            if (t[0] == 0) {
-                break;
-            } else {
-                prt(t, tb->hgt + 1 + 1 + j, 0);
-                t += strlen(t) + 1;
-            }
-        }
+        display_wrap_around(buf, 81, tb->hgt + 2, 0);
     }
 
-    if (str1) {
+    if (!str1.empty()) {
         prt(str1, tb->hgt + 1 + 1, 0);
     }
-    if (str2) {
+    if (!str2.empty()) {
         prt(str2, tb->hgt + 1 + 2, 0);
     }
 }

@@ -1,4 +1,4 @@
-﻿/* File: z-term.h */
+#pragma once
 
 /*
  * Copyright (c) 1997 Ben Harrison
@@ -8,14 +8,13 @@
  * are included in all such copies.
  */
 
-#ifndef INCLUDED_Z_TERM_H
-#define INCLUDED_Z_TERM_H
-
 #include "system/angband.h"
 #include "system/h-basic.h"
-
 #include <memory>
+#include <optional>
 #include <stack>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 /*!
@@ -76,6 +75,12 @@ struct term_type {
     TERM_LEN wid{}; //!< Window Width(max 255)
     TERM_LEN hgt{}; //!< Window Height(max 255)
 
+    std::optional<TERM_LEN> centered_wid{};
+    std::optional<TERM_LEN> centered_hgt{};
+
+    TERM_LEN offset_x{};
+    TERM_LEN offset_y{};
+
     TERM_LEN y1{}; //!< Minimum modified row
     TERM_LEN y2{}; //!< Maximum modified row
 
@@ -110,6 +115,37 @@ struct term_type {
     term_type &operator=(const term_type &) = delete;
     term_type(term_type &&) = default;
     term_type &operator=(term_type &&) = default;
+};
+
+class TermOffsetSetter {
+public:
+    TermOffsetSetter(std::optional<TERM_LEN> x, std::optional<TERM_LEN> y);
+    ~TermOffsetSetter();
+    TermOffsetSetter(const TermOffsetSetter &) = delete;
+    TermOffsetSetter &operator=(const TermOffsetSetter &) = delete;
+    TermOffsetSetter(TermOffsetSetter &&) = delete;
+    TermOffsetSetter &operator=(TermOffsetSetter &&) = delete;
+
+private:
+    term_type *term;
+    TERM_LEN orig_offset_x;
+    TERM_LEN orig_offset_y;
+};
+
+class TermCenteredOffsetSetter {
+public:
+    TermCenteredOffsetSetter(std::optional<TERM_LEN> width, std::optional<TERM_LEN> height);
+    ~TermCenteredOffsetSetter();
+    TermCenteredOffsetSetter(const TermCenteredOffsetSetter &) = delete;
+    TermCenteredOffsetSetter &operator=(const TermCenteredOffsetSetter &) = delete;
+    TermCenteredOffsetSetter(TermCenteredOffsetSetter &&) = delete;
+    TermCenteredOffsetSetter &operator=(TermCenteredOffsetSetter &&) = delete;
+
+private:
+    std::optional<TermOffsetSetter> tos;
+    term_type *term;
+    std::optional<TERM_LEN> orig_centered_wid;
+    std::optional<TERM_LEN> orig_centered_hgt;
 };
 
 /**** Available Constants ****/
@@ -155,7 +191,6 @@ struct term_type {
 /**** Available Variables ****/
 extern term_type *game_term;
 
-errr term_win_nuke(term_win *s, TERM_LEN w, TERM_LEN h);
 errr term_user(int n);
 errr term_xtra(int n, int v);
 
@@ -170,16 +205,16 @@ errr term_gotoxy(TERM_LEN x, TERM_LEN y);
 errr term_draw(TERM_LEN x, TERM_LEN y, TERM_COLOR a, char c);
 errr term_addch(TERM_COLOR a, char c);
 errr term_add_bigch(TERM_COLOR a, char c);
-errr term_addstr(int n, TERM_COLOR a, concptr s);
+errr term_addstr(int n, TERM_COLOR a, std::string_view sv);
 errr term_putch(TERM_LEN x, TERM_LEN y, TERM_COLOR a, char c);
-errr term_putstr(TERM_LEN x, TERM_LEN y, int n, TERM_COLOR a, concptr s);
-errr term_erase(TERM_LEN x, TERM_LEN y, int n);
+errr term_putstr(TERM_LEN x, TERM_LEN y, int n, TERM_COLOR a, std::string_view sv);
+errr term_erase(TERM_LEN x, TERM_LEN y, std::optional<int> n_opt = std::nullopt);
 errr term_clear(void);
 errr term_redraw(void);
 errr term_redraw_section(TERM_LEN x1, TERM_LEN y1, TERM_LEN x2, TERM_LEN y2);
 
 errr term_get_cursor(int *v);
-errr term_get_size(TERM_LEN *w, TERM_LEN *h);
+std::pair<int, int> term_get_size();
 errr term_locate(TERM_LEN *x, TERM_LEN *y);
 errr term_what(TERM_LEN x, TERM_LEN y, TERM_COLOR *a, char *c);
 
@@ -204,6 +239,4 @@ errr term_putstr_v(TERM_LEN x, TERM_LEN y, int n, byte a, concptr s);
 
 #ifndef WINDOWS
 errr term_nuke(term_type *t);
-#endif
-
 #endif

@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief ゲームデータ初期化1 / Initialization (part 1) -BEN-
  * @date 2014/01/28
  * @author
@@ -11,11 +11,13 @@
 #include "floor/fixed-map-generator.h"
 #include "game-option/birth-options.h"
 #include "game-option/runtime-arguments.h"
+#include "info-reader/parse-error-types.h"
 #include "io/files-util.h"
 #include "main/init-error-messages-table.h"
 #include "player-info/class-info.h"
 #include "player-info/race-info.h"
 #include "realm/realm-names-table.h"
+#include "system/angband-exceptions.h"
 #include "system/floor-type-definition.h"
 #include "system/player-type-definition.h"
 #include "util/angband-files.h"
@@ -24,9 +26,7 @@
 #include "world/world.h"
 #include <algorithm>
 #include <sstream>
-#include <stdexcept>
 
-static char tmp[8];
 static concptr variant = "ZANGBAND";
 
 /*!
@@ -39,6 +39,7 @@ static concptr variant = "ZANGBAND";
  */
 static concptr parse_fixed_map_expression(PlayerType *player_ptr, char **sp, char *fp)
 {
+    static std::string tmp;
     char b1 = '[';
     char b2 = ']';
 
@@ -199,39 +200,38 @@ static concptr parse_fixed_map_expression(PlayerType *player_ptr, char **sp, cha
         *tpn = '\0';
         v = tmp_player_name;
     } else if (streq(b + 1, "TOWN")) {
-        sprintf(tmp, "%d", player_ptr->town_num);
-        v = tmp;
+        tmp = std::to_string(player_ptr->town_num);
+        v = tmp.data();
     } else if (streq(b + 1, "LEVEL")) {
-        sprintf(tmp, "%d", player_ptr->lev);
-        v = tmp;
+        tmp = std::to_string(player_ptr->lev);
+        v = tmp.data();
     } else if (streq(b + 1, "QUEST_NUMBER")) {
-        sprintf(tmp, "%d", enum2i(player_ptr->current_floor_ptr->quest_number));
-        v = tmp;
+        tmp = std::to_string(enum2i(player_ptr->current_floor_ptr->quest_number));
+        v = tmp.data();
     } else if (streq(b + 1, "LEAVING_QUEST")) {
-        sprintf(tmp, "%d", enum2i(leaving_quest));
-        v = tmp;
+        tmp = std::to_string(enum2i(leaving_quest));
+        v = tmp.data();
     } else if (prefix(b + 1, "QUEST_TYPE")) {
         const auto &quest_list = QuestList::get_instance();
-        sprintf(tmp, "%d", enum2i(quest_list[i2enum<QuestId>(atoi(b + 11))].type));
-        v = tmp;
+        tmp = std::to_string(enum2i(quest_list[i2enum<QuestId>(atoi(b + 11))].type));
+        v = tmp.data();
     } else if (prefix(b + 1, "QUEST")) {
         const auto &quest_list = QuestList::get_instance();
-        sprintf(tmp, "%d", enum2i(quest_list[i2enum<QuestId>(atoi(b + 6))].status));
-        v = tmp;
+        tmp = std::to_string(enum2i(quest_list[i2enum<QuestId>(atoi(b + 6))].status));
+        v = tmp.data();
     } else if (prefix(b + 1, "RANDOM")) {
-        sprintf(tmp, "%d", (int)(w_ptr->seed_town % atoi(b + 7)));
-        v = tmp;
+        tmp = std::to_string((int)(w_ptr->seed_town % atoi(b + 7)));
+        v = tmp.data();
     } else if (streq(b + 1, "VARIANT")) {
         v = variant;
     } else if (streq(b + 1, "WILDERNESS")) {
         if (vanilla_town) {
-            sprintf(tmp, "NONE");
+            v = "NONE";
         } else if (lite_town) {
-            sprintf(tmp, "LITE");
+            v = "LITE";
         } else {
-            sprintf(tmp, "NORMAL");
+            v = "NORMAL";
         }
-        v = tmp;
     } else if (streq(b + 1, "IRONMAN_DOWNWARD")) {
         v = (ironman_downward ? "1" : "0");
     }
@@ -251,11 +251,10 @@ static concptr parse_fixed_map_expression(PlayerType *player_ptr, char **sp, cha
  * @param xmax 詳細不明
  * @return エラーコード
  */
-parse_error_type parse_fixed_map(PlayerType *player_ptr, concptr name, int ymin, int xmin, int ymax, int xmax)
+parse_error_type parse_fixed_map(PlayerType *player_ptr, std::string_view name, int ymin, int xmin, int ymax, int xmax)
 {
-    char buf[1024];
-    path_build(buf, sizeof(buf), ANGBAND_DIR_EDIT, name);
-    FILE *fp = angband_fopen(buf, "r");
+    const auto &path = path_build(ANGBAND_DIR_EDIT, name);
+    auto *fp = angband_fopen(path, FileOpenMode::READ);
     if (fp == nullptr) {
         return PARSE_ERROR_GENERIC;
     }
@@ -266,6 +265,7 @@ parse_error_type parse_fixed_map(PlayerType *player_ptr, concptr name, int ymin,
     int x = xmin;
     int y = ymin;
     qtwg_type tmp_qg;
+    char buf[1024]{};
     qtwg_type *qg_ptr = initialize_quest_generator_type(&tmp_qg, buf, ymin, xmin, ymax, xmax, &y, &x);
     while (angband_fgets(fp, buf, sizeof(buf)) == 0) {
         num++;
@@ -294,7 +294,7 @@ parse_error_type parse_fixed_map(PlayerType *player_ptr, concptr name, int ymin,
 
     if (err != 0) {
         concptr oops = (((err > 0) && (err < PARSE_ERROR_MAX)) ? err_str[err] : "unknown");
-        msg_format("Error %d (%s) at line %d of '%s'.", err, oops, num, name);
+        msg_format("Error %d (%s) at line %d of '%s'.", err, oops, num, name.data());
         msg_format(_("'%s'を解析中。", "Parsing '%s'."), buf);
         msg_print(nullptr);
     }
@@ -328,9 +328,8 @@ static QuestId parse_quest_number(const std::vector<std::string> &token)
  * @param file_name ファイル名
  * @param key_list キーになるQuestIdの配列
  */
-static void parse_quest_info_aux(const char *file_name, std::set<QuestId> &key_list_ref)
+static void parse_quest_info_aux(std::string_view file_name, std::set<QuestId> &key_list_ref)
 {
-
     auto push_set = [&key_list_ref, &file_name](auto q, auto line) {
         if (q == QuestId::NONE) {
             return;
@@ -339,19 +338,18 @@ static void parse_quest_info_aux(const char *file_name, std::set<QuestId> &key_l
         if (key_list_ref.find(q) != key_list_ref.end()) {
             std::stringstream ss;
             ss << _("重複したQuestID ", "Duplicated Quest Id ") << enum2i(q) << '(' << file_name << ", L" << line << ')';
-            throw std::runtime_error(ss.str());
+            THROW_EXCEPTION(std::runtime_error, ss.str());
         }
 
         key_list_ref.insert(q);
     };
 
-    char file_buf[1024];
-    path_build(file_buf, sizeof(file_buf), ANGBAND_DIR_EDIT, file_name);
-    auto *fp = angband_fopen(file_buf, "r");
+    const auto &path = path_build(ANGBAND_DIR_EDIT, file_name);
+    auto *fp = angband_fopen(path, FileOpenMode::READ);
     if (fp == nullptr) {
         std::stringstream ss;
         ss << _("ファイルが見つかりません (", "File is not found (") << file_name << ')';
-        throw std::runtime_error(ss.str());
+        THROW_EXCEPTION(std::runtime_error, ss.str());
     }
 
     char buf[4096];
@@ -385,7 +383,7 @@ static void parse_quest_info_aux(const char *file_name, std::set<QuestId> &key_l
  * @param file_name ファイル名
  * @return クエスト番号の配列
  */
-std::set<QuestId> parse_quest_info(const char *file_name)
+std::set<QuestId> parse_quest_info(std::string_view file_name)
 {
     std::set<QuestId> key_list;
     parse_quest_info_aux(file_name, key_list);

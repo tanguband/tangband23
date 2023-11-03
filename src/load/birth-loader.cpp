@@ -1,4 +1,4 @@
-﻿#include "load/birth-loader.h"
+#include "load/birth-loader.h"
 #include "birth/quick-start.h"
 #include "load/angband-version-comparer.h"
 #include "load/load-util.h"
@@ -43,7 +43,7 @@ void load_quick_start(void)
     previous_char.chaos_patron = rd_s16b();
 
     for (int i = 0; i < 8; i++) {
-        previous_char.vir_types[i] = rd_s16b();
+        previous_char.vir_types[i] = i2enum<Virtue>(rd_s16b());
     }
 
     for (int i = 0; i < 4; i++) {

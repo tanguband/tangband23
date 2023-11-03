@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief プレイヤーのアイテムに関するコマンドの実装2 / Spell/Prayer commands
  * @date 2014/01/27
  * @author
@@ -77,11 +77,12 @@
 #include "target/target-getter.h"
 #include "term/screen-processor.h"
 #include "term/term-color-types.h"
+#include "term/z-form.h"
 #include "timed-effect/player-stun.h"
 #include "timed-effect/timed-effects.h"
-#include "util/buffer-shaper.h"
 #include "util/int-char-converter.h"
 #include "view/display-messages.h"
+#include "view/display-util.h"
 #include <algorithm>
 #include <optional>
 
@@ -135,12 +136,8 @@ static std::optional<BaseitemKey> check_magic_eater_spell_repeat(magic_eater_dat
  */
 static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, bool only_browse)
 {
-    char choice;
     bool flag, request_list;
     auto tval = ItemKindType::NONE;
-    OBJECT_SUBTYPE_VALUE i = 0;
-    char out_val[160];
-
     int menu_line = (use_menu ? 1 : 0);
 
     auto magic_eater_data = PlayerClass(player_ptr).get_specific_data<magic_eater_data_type>();
@@ -170,7 +167,7 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
                 prt(_("どの種類の魔法を使いますか？", "Which type of magic do you use?"), 0, 0);
             }
 
-            choice = inkey();
+            const auto choice = inkey();
             switch (choice) {
             case ESCAPE:
             case 'z':
@@ -206,17 +203,22 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
         screen_load();
     } else {
         while (true) {
-            if (!get_com(_("[A] 杖, [B] 魔法棒, [C] ロッド:", "[A] staff, [B] wand, [C] rod:"), &choice, true)) {
+            const auto new_choice = input_command(_("[A] 杖, [B] 魔法棒, [C] ロッド:", "[A] staff, [B] wand, [C] rod:"), true);
+            if (!new_choice.has_value()) {
                 return std::nullopt;
             }
+
+            const auto choice = new_choice.value();
             if (choice == 'A' || choice == 'a') {
                 tval = ItemKindType::STAFF;
                 break;
             }
+
             if (choice == 'B' || choice == 'b') {
                 tval = ItemKindType::WAND;
                 break;
             }
+
             if (choice == 'C' || choice == 'c') {
                 tval = ItemKindType::ROD;
                 break;
@@ -240,29 +242,27 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
     /* Nothing chosen yet */
     flag = false;
 
+    std::string prompt;
     if (only_browse) {
-        strnfmt(out_val, 78, _("('*'で一覧, ESCで中断) どの魔力を見ますか？", "(*=List, ESC=exit) Browse which power? "));
+        prompt = _("('*'で一覧, ESCで中断) どの魔力を見ますか？", "(*=List, ESC=exit) Browse which power? ");
     } else {
-        strnfmt(out_val, 78, _("('*'で一覧, ESCで中断) どの魔力を使いますか？", "(*=List, ESC=exit) Use which power? "));
+        prompt = _("('*'で一覧, ESCで中断) どの魔力を使いますか？", "(*=List, ESC=exit) Use which power? ");
     }
-    screen_save();
 
+    screen_save();
     request_list = always_show_list;
 
-    const int ITEM_GROUP_SIZE = item_group.size();
+    const int item_group_size = item_group.size();
+    auto sval = 0;
     while (!flag) {
         /* Show the list */
         if (request_list || use_menu) {
             byte y, x = 0;
-            OBJECT_SUBTYPE_VALUE ctr;
             PERCENTAGE chance;
             short bi_id;
-            char dummy[80];
             POSITION x1, y1;
             DEPTH level;
             byte col;
-
-            strcpy(dummy, "");
 
             for (y = 1; y < 20; y++) {
                 prt("", y, x);
@@ -282,34 +282,36 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
 #endif
 
             /* Print list */
-            for (ctr = 0; ctr < ITEM_GROUP_SIZE; ctr++) {
-                auto &item = item_group[ctr];
+            for (auto sval_ctr = 0; sval_ctr < item_group_size; sval_ctr++) {
+                auto &item = item_group[sval_ctr];
                 if (item.count == 0) {
                     continue;
                 }
 
-                bi_id = lookup_baseitem_id({ tval, ctr });
+                bi_id = lookup_baseitem_id({ tval, sval_ctr });
 
+                std::string dummy;
                 if (use_menu) {
-                    if (ctr == (menu_line - 1)) {
-                        strcpy(dummy, _("》", "> "));
+                    if (sval_ctr == (menu_line - 1)) {
+                        dummy = _("》", "> ");
                     } else {
-                        strcpy(dummy, "  ");
+                        dummy = "  ";
                     }
                 }
                 /* letter/number for power selection */
                 else {
                     char letter;
-                    if (ctr < 26) {
-                        letter = I2A(ctr);
+                    if (sval_ctr < 26) {
+                        letter = I2A(sval_ctr);
                     } else {
-                        letter = '0' + ctr - 26;
+                        letter = '0' + sval_ctr - 26;
                     }
-                    sprintf(dummy, "%c)", letter);
+                    dummy = format("%c)", letter);
                 }
-                x1 = ((ctr < ITEM_GROUP_SIZE / 2) ? x : x + 40);
-                y1 = ((ctr < ITEM_GROUP_SIZE / 2) ? y + ctr : y + ctr - ITEM_GROUP_SIZE / 2);
-                level = (tval == ItemKindType::ROD ? baseitems_info[bi_id].level * 5 / 6 - 5 : baseitems_info[bi_id].level);
+                x1 = ((sval_ctr < item_group_size / 2) ? x : x + 40);
+                y1 = ((sval_ctr < item_group_size / 2) ? y + sval_ctr : y + sval_ctr - item_group_size / 2);
+                const auto &baseitem = baseitems_info[bi_id];
+                level = (tval == ItemKindType::ROD ? baseitem.level * 5 / 6 - 5 : baseitem.level);
                 chance = level * 4 / 5 + 20;
                 chance -= 3 * (adj_mag_stat[player_ptr->stat_index[mp_ptr->spell_stat]] - 1);
                 level /= 2;
@@ -330,32 +332,36 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
 
                 if (bi_id) {
                     if (tval == ItemKindType::ROD) {
-                        strcat(dummy,
-                            format(_(" %-22.22s 充填:%2d/%2d%3d%%", " %-22.22s   (%2d/%2d) %3d%%"), baseitems_info[bi_id].name.data(),
-                                item.charge ? (item.charge - 1) / (EATER_ROD_CHARGE * baseitems_info[bi_id].pval) + 1 : 0,
-                                item.count, chance));
-                        if (item.charge > baseitems_info[bi_id].pval * (item.count - 1) * EATER_ROD_CHARGE) {
+                        dummy.append(
+                            format(_(" %-22.22s 充填:%2d/%2d%3d%%", " %-22.22s   (%2d/%2d) %3d%%"), baseitem.name.data(),
+                                item.charge ? (item.charge - 1) / (EATER_ROD_CHARGE * baseitem.pval) + 1 : 0,
+                                item.count, chance)
+                                .data());
+                        if (item.charge > baseitem.pval * (item.count - 1) * EATER_ROD_CHARGE) {
                             col = TERM_RED;
                         }
                     } else {
-                        strcat(dummy,
-                            format(" %-22.22s    %2d/%2d %3d%%", baseitems_info[bi_id].name.data(), (int16_t)(item.charge / EATER_CHARGE),
-                                item.count, chance));
+                        dummy.append(
+                            format(" %-22.22s    %2d/%2d %3d%%", baseitem.name.data(), (int16_t)(item.charge / EATER_CHARGE),
+                                item.count, chance)
+                                .data());
                         if (item.charge < EATER_CHARGE) {
                             col = TERM_RED;
                         }
                     }
                 } else {
-                    strcpy(dummy, "");
+                    dummy.clear();
                 }
                 c_prt(col, dummy, y1, x1);
             }
         }
 
-        if (!get_com(out_val, &choice, false)) {
+        const auto choice_opt = input_command(prompt);
+        if (!choice_opt.has_value()) {
             break;
         }
 
+        const auto choice = choice_opt.value();
         auto should_redraw_cursor = true;
         if (use_menu && choice != ' ') {
             switch (choice) {
@@ -368,9 +374,9 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
             case 'k':
             case 'K': {
                 do {
-                    menu_line += ITEM_GROUP_SIZE - 1;
-                    if (menu_line > ITEM_GROUP_SIZE) {
-                        menu_line -= ITEM_GROUP_SIZE;
+                    menu_line += item_group_size - 1;
+                    if (menu_line > item_group_size) {
+                        menu_line -= item_group_size;
                     }
                 } while (item_group[menu_line - 1].count == 0);
                 break;
@@ -381,8 +387,8 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
             case 'J': {
                 do {
                     menu_line++;
-                    if (menu_line > ITEM_GROUP_SIZE) {
-                        menu_line -= ITEM_GROUP_SIZE;
+                    if (menu_line > item_group_size) {
+                        menu_line -= item_group_size;
                     }
                 } while (item_group[menu_line - 1].count == 0);
                 break;
@@ -398,11 +404,11 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
                 if ((choice == '4') || (choice == 'h') || (choice == 'H')) {
                     reverse = true;
                 }
-                if (menu_line > ITEM_GROUP_SIZE / 2) {
-                    menu_line -= ITEM_GROUP_SIZE / 2;
+                if (menu_line > item_group_size / 2) {
+                    menu_line -= item_group_size / 2;
                     reverse = true;
                 } else {
-                    menu_line += ITEM_GROUP_SIZE / 2;
+                    menu_line += item_group_size / 2;
                 }
                 while (item_group[menu_line - 1].count == 0) {
                     if (reverse) {
@@ -412,7 +418,7 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
                         }
                     } else {
                         menu_line++;
-                        if (menu_line > ITEM_GROUP_SIZE - 1) {
+                        if (menu_line > item_group_size - 1) {
                             reverse = true;
                         }
                     }
@@ -423,7 +429,7 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
             case 'x':
             case 'X':
             case '\r': {
-                i = menu_line - 1;
+                sval = menu_line - 1;
                 should_redraw_cursor = false;
                 break;
             }
@@ -453,22 +459,22 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
 
         if (!use_menu) {
             if (isalpha(choice)) {
-                i = A2I(choice);
+                sval = A2I(choice);
             } else {
-                i = choice - '0' + 26;
+                sval = choice - '0' + 26;
             }
         }
 
         /* Totally Illegal */
-        if ((i < 0) || (i > ITEM_GROUP_SIZE) || item_group[i].count == 0) {
+        if ((sval < 0) || (sval > item_group_size) || item_group[sval].count == 0) {
             bell();
             continue;
         }
 
         if (!only_browse) {
-            auto &item = item_group[i];
+            auto &item = item_group[sval];
             if (tval == ItemKindType::ROD) {
-                if (item.charge > baseitems_info[lookup_baseitem_id({ tval, i })].pval * (item.count - 1) * EATER_ROD_CHARGE) {
+                if (item.charge > baseitems_info[lookup_baseitem_id({ tval, sval })].pval * (item.count - 1) * EATER_ROD_CHARGE) {
                     msg_print(_("その魔法はまだ充填している最中だ。", "The magic is still charging."));
                     msg_print(nullptr);
                     continue;
@@ -484,21 +490,13 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
 
         /* Browse */
         else {
-            int line, j;
-            char temp[70 * 20];
-
             /* Clear lines, position cursor  (really should use strlen here) */
-            term_erase(7, 23, 255);
-            term_erase(7, 22, 255);
-            term_erase(7, 21, 255);
-            term_erase(7, 20, 255);
+            term_erase(7, 23);
+            term_erase(7, 22);
+            term_erase(7, 21);
+            term_erase(7, 20);
 
-            shape_buffer(baseitems_info[lookup_baseitem_id({ tval, i })].text.data(), 62, temp, sizeof(temp));
-            for (j = 0, line = 21; temp[j]; j += 1 + strlen(&temp[j])) {
-                prt(&temp[j], line, 10);
-                line++;
-            }
-
+            display_wrap_around(baseitems_info[lookup_baseitem_id({ tval, sval })].text, 62, 21, 10);
             continue;
         }
 
@@ -526,9 +524,9 @@ static std::optional<BaseitemKey> select_magic_eater(PlayerType *player_ptr, boo
         break;
     }
 
-    repeat_push(base + i);
+    repeat_push(base + sval);
 
-    return BaseitemKey(tval, i);
+    return BaseitemKey(tval, sval);
 }
 
 /*!
@@ -552,10 +550,11 @@ bool do_cmd_magic_eater(PlayerType *player_ptr, bool only_browse, bool powerful)
         energy.reset_player_turn();
         return false;
     }
-    auto &baseitem = result.value();
+    auto &bi_key = result.value();
 
-    auto bi_id = lookup_baseitem_id(baseitem);
-    auto level = (baseitem.tval() == ItemKindType::ROD ? baseitems_info[bi_id].level * 5 / 6 - 5 : baseitems_info[bi_id].level);
+    const auto bi_id = lookup_baseitem_id(bi_key);
+    const auto &baseitem = baseitems_info[bi_id];
+    auto level = (bi_key.tval() == ItemKindType::ROD ? baseitem.level * 5 / 6 - 5 : baseitem.level);
     auto chance = level * 4 / 5 + 20;
     chance -= 3 * (adj_mag_stat[player_ptr->stat_index[mp_ptr->spell_stat]] - 1);
     level /= 2;
@@ -580,7 +579,7 @@ bool do_cmd_magic_eater(PlayerType *player_ptr, bool only_browse, bool powerful)
         msg_print(_("呪文をうまく唱えられなかった！", "You failed to get the magic off!"));
         sound(SOUND_FAIL);
         if (randint1(100) >= chance) {
-            chg_virtue(player_ptr, V_CHANCE, -1);
+            chg_virtue(player_ptr, Virtue::CHANCE, -1);
         }
         energy.set_player_turn_energy(100);
 
@@ -588,14 +587,14 @@ bool do_cmd_magic_eater(PlayerType *player_ptr, bool only_browse, bool powerful)
     } else {
         DIRECTION dir = 0;
 
-        switch (baseitem.tval()) {
+        switch (bi_key.tval()) {
         case ItemKindType::ROD: {
-            const auto sval = baseitem.sval();
+            const auto sval = bi_key.sval();
             if (!sval.has_value()) {
                 return false;
             }
 
-            if (baseitem.is_aiming_rod() && !get_aim_dir(player_ptr, &dir)) {
+            if (bi_key.is_aiming_rod() && !get_aim_dir(player_ptr, &dir)) {
                 return false;
             }
 
@@ -607,7 +606,7 @@ bool do_cmd_magic_eater(PlayerType *player_ptr, bool only_browse, bool powerful)
             break;
         }
         case ItemKindType::WAND: {
-            const auto sval = baseitem.sval();
+            const auto sval = bi_key.sval();
             if (!sval.has_value()) {
                 return false;
             }
@@ -620,7 +619,7 @@ bool do_cmd_magic_eater(PlayerType *player_ptr, bool only_browse, bool powerful)
             break;
         }
         default:
-            const auto sval = baseitem.sval();
+            const auto sval = bi_key.sval();
             if (!sval.has_value()) {
                 return false;
             }
@@ -634,23 +633,23 @@ bool do_cmd_magic_eater(PlayerType *player_ptr, bool only_browse, bool powerful)
         }
 
         if (randint1(100) < chance) {
-            chg_virtue(player_ptr, V_CHANCE, 1);
+            chg_virtue(player_ptr, Virtue::CHANCE, 1);
         }
     }
 
     auto magic_eater_data = PlayerClass(player_ptr).get_specific_data<magic_eater_data_type>();
-    const auto opt_sval = baseitem.sval();
+    const auto opt_sval = bi_key.sval();
     if (!opt_sval.has_value()) {
         return false;
     }
 
-    const auto tval = baseitem.tval();
+    const auto tval = bi_key.tval();
     const auto sval = opt_sval.value();
     auto &item = magic_eater_data->get_item_group(tval)[sval];
 
     energy.set_player_turn_energy(100);
     if (tval == ItemKindType::ROD) {
-        item.charge += baseitems_info[bi_id].pval * EATER_ROD_CHARGE;
+        item.charge += baseitem.pval * EATER_ROD_CHARGE;
     } else {
         item.charge -= EATER_CHARGE;
     }

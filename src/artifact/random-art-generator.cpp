@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file random-art-generator.cpp
  * @brief ランダムアーティファクトの生成メイン定義 / Artifact code
  * @date 2020/07/14
@@ -24,7 +24,6 @@
 #include "object-enchant/tr-types.h"
 #include "object-hook/hook-armor.h"
 #include "object-hook/hook-weapon.h"
-#include "object/object-flags.h"
 #include "object/object-kind-hook.h"
 #include "object/object-value-calc.h"
 #include "object/tval-types.h"
@@ -34,20 +33,18 @@
 #include "system/baseitem-info.h"
 #include "system/item-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "util/bit-flags-calculator.h"
-#include "util/quarks.h"
 #include "view/display-messages.h"
 #include "wizard/artifact-bias-table.h"
 #include "wizard/wizard-messages.h"
 #include "world/world.h"
+#include <sstream>
 
 static bool weakening_artifact(ItemEntity *o_ptr)
 {
-    const auto bi_id = lookup_baseitem_id(o_ptr->bi_key);
-    const auto &baseitem = baseitems_info[bi_id];
-    auto flgs = object_flags(o_ptr);
-
-    if (flgs.has(TR_KILL_EVIL)) {
+    const auto &baseitem = o_ptr->get_baseitem();
+    if (o_ptr->get_flags().has(TR_KILL_EVIL)) {
         o_ptr->art_flags.reset(TR_KILL_EVIL);
         o_ptr->art_flags.set(TR_SLAY_EVIL);
         return true;
@@ -383,44 +380,50 @@ static int decide_random_art_power_level(ItemEntity *o_ptr, const bool a_cursed,
     return 3;
 }
 
-static void name_unnatural_random_artifact(PlayerType *player_ptr, ItemEntity *o_ptr, const bool a_scroll, const int power_level, GAME_TEXT *new_name)
+static std::string name_unnatural_random_artifact(PlayerType *player_ptr, ItemEntity *o_ptr, const bool a_scroll, const int power_level)
 {
     if (!a_scroll) {
-        get_random_name(o_ptr, new_name, o_ptr->is_protector(), power_level);
-        return;
+        return get_random_name(*o_ptr, o_ptr->is_protector(), power_level);
     }
 
-    GAME_TEXT dummy_name[MAX_NLEN] = "";
-    concptr ask_msg = _("このアーティファクトを何と名付けますか？", "What do you want to call the artifact? ");
+    constexpr auto prompt = _("このアーティファクトを何と名付けますか？", "What do you want to call the artifact? ");
     object_aware(player_ptr, o_ptr);
     object_known(o_ptr);
     o_ptr->ident |= IDENT_FULL_KNOWN;
-    o_ptr->art_name = quark_add("");
+    o_ptr->randart_name.reset();
     (void)screen_object(player_ptr, o_ptr, 0L);
-    if (!get_string(ask_msg, dummy_name, sizeof dummy_name) || !dummy_name[0]) {
-        if (one_in_(2)) {
-            get_table_sindarin_aux(dummy_name);
-        } else {
-            get_table_name_aux(dummy_name);
-        }
+
+    auto wrap_name = [](const auto &name) {
+        std::stringstream ss;
+        ss << _("《", "'") << name << _("》", "'");
+        return ss.str();
+    };
+    const auto new_name = input_string(prompt, 160);
+    if (new_name.has_value() && !new_name->empty()) {
+        return wrap_name(new_name.value());
     }
 
-    sprintf(new_name, _("《%s》", "'%s'"), dummy_name);
-    chg_virtue(player_ptr, V_INDIVIDUALISM, 2);
-    chg_virtue(player_ptr, V_ENCHANT, 5);
+    if (one_in_(2)) {
+        return wrap_name(get_table_sindarin_aux());
+    }
+
+    return wrap_name(get_table_name_aux());
 }
 
 static void generate_unnatural_random_artifact(
     PlayerType *player_ptr, ItemEntity *o_ptr, const bool a_scroll, const int power_level, const int max_powers, const int total_flags)
 {
-    GAME_TEXT new_name[1024];
-    strcpy(new_name, "");
-    name_unnatural_random_artifact(player_ptr, o_ptr, a_scroll, power_level, new_name);
-    o_ptr->art_name = quark_add(new_name);
+    o_ptr->randart_name = name_unnatural_random_artifact(player_ptr, o_ptr, a_scroll, power_level);
     msg_format_wizard(player_ptr, CHEAT_OBJECT,
-        _("パワー %d で 価値%ld のランダムアーティファクト生成 バイアスは「%s」", "Random artifact generated - Power:%d Value:%d Bias:%s."), max_powers,
+        _("パワー %d で 価値 %d のランダムアーティファクト生成 バイアスは「%s」", "Random artifact generated - Power:%d Value:%d Bias:%s."), max_powers,
         total_flags, artifact_bias_name[o_ptr->artifact_bias]);
-    set_bits(player_ptr->window_flags, PW_INVEN | PW_EQUIP | PW_FLOOR_ITEM_LIST | PW_FOUND_ITEM_LIST);
+    static constexpr auto flags = {
+        SubWindowRedrawingFlag::INVENTORY,
+        SubWindowRedrawingFlag::EQUIPMENT,
+        SubWindowRedrawingFlag::FLOOR_ITEMS,
+        SubWindowRedrawingFlag::FOUND_ITEMS,
+    };
+    RedrawingFlagsUpdater::get_instance().set_flags(flags);
 }
 
 /*!
@@ -436,7 +439,7 @@ bool become_random_artifact(PlayerType *player_ptr, ItemEntity *o_ptr, bool a_sc
     o_ptr->artifact_bias = 0;
     o_ptr->fixed_artifact_idx = FixedArtifactId::NONE;
     o_ptr->ego_idx = EgoType::NONE;
-    o_ptr->art_flags |= baseitems_info[o_ptr->bi_id].flags;
+    o_ptr->art_flags |= o_ptr->get_baseitem().flags;
 
     bool has_pval = o_ptr->pval != 0;
     decide_warrior_bias(player_ptr, o_ptr, a_scroll);
@@ -479,5 +482,11 @@ bool become_random_artifact(PlayerType *player_ptr, ItemEntity *o_ptr, bool a_sc
     }
 
     generate_unnatural_random_artifact(player_ptr, o_ptr, a_scroll, power_level, max_powers, total_flags);
+
+    if (a_scroll) {
+        chg_virtue(player_ptr, Virtue::INDIVIDUALISM, 2);
+        chg_virtue(player_ptr, Virtue::ENCHANT, 5);
+    }
+
     return true;
 }

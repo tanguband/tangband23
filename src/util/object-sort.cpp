@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief オブジェクトのソート処理
  * @date 2020/06/03
  * @author Hourier
@@ -20,7 +20,7 @@ static int get_item_sort_rank(const ItemEntity &item)
         return 3;
     }
 
-    if (item.art_name) {
+    if (item.is_random_artifact()) {
         return 2;
     }
 
@@ -41,7 +41,7 @@ static int get_item_sort_rank(const ItemEntity &item)
  */
 bool object_sort_comp(PlayerType *player_ptr, ItemEntity *o_ptr, int32_t o_value, ItemEntity *j_ptr)
 {
-    if (j_ptr->bi_id == 0) {
+    if (!j_ptr->is_valid()) {
         return true;
     }
 

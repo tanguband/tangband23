@@ -1,7 +1,6 @@
-﻿#include "player-info/base-status-info.h"
+#include "player-info/base-status-info.h"
 #include "inventory/inventory-slot-types.h"
 #include "object-enchant/tr-types.h"
-#include "object/object-flags.h"
 #include "player-info/self-info-util.h"
 #include "player/player-status-flags.h"
 #include "system/player-type-definition.h"
@@ -11,12 +10,12 @@ void set_equipment_influence(PlayerType *player_ptr, self_info_type *self_ptr)
 {
     for (int k = INVEN_MAIN_HAND; k < INVEN_TOTAL; k++) {
         auto *o_ptr = &player_ptr->inventory_list[k];
-        if (o_ptr->bi_id == 0) {
+        if (!o_ptr->is_valid()) {
             continue;
         }
 
-        auto tflgs = object_flags(o_ptr);
-        self_ptr->flags.set(tflgs);
+        const auto tflags = o_ptr->get_flags();
+        self_ptr->flags.set(tflags);
     }
 
     if (self_ptr->flags.has(TR_STR)) {

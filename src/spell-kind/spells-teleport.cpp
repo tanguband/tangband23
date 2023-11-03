@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @brief テレポート魔法全般
  * @date 2020/06/04
  * @author Hourier
@@ -7,8 +7,8 @@
 #include "spell-kind/spells-teleport.h"
 #include "avatar/avatar.h"
 #include "core/asking-player.h"
-#include "core/player-update-types.h"
 #include "core/speed-table.h"
+#include "dungeon/quest.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
 #include "floor/cave.h"
@@ -20,6 +20,7 @@
 #include "main/sound-of-music.h"
 #include "monster-floor/monster-move.h"
 #include "monster-race/monster-race.h"
+#include "monster-race/race-brightness-mask.h"
 #include "monster-race/race-flags-resistance.h"
 #include "monster-race/race-flags7.h"
 #include "monster/monster-info.h"
@@ -28,17 +29,18 @@
 #include "monster/monster-update.h"
 #include "mutation/mutation-flag-types.h"
 #include "object-enchant/tr-types.h"
-#include "object/object-flags.h"
 #include "player-base/player-class.h"
 #include "player/player-move.h"
 #include "player/player-status.h"
 #include "spell-kind/spells-launcher.h"
+#include "system/angband-system.h"
 #include "system/floor-type-definition.h"
 #include "system/grid-type-definition.h"
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/grid-selector.h"
 #include "target/target-checker.h"
 #include "util/bit-flags-calculator.h"
@@ -83,7 +85,7 @@ bool teleport_swap(PlayerType *player_ptr, DIRECTION dir)
     MonsterEntity *m_ptr;
     MonsterRaceInfo *r_ptr;
     m_ptr = &player_ptr->current_floor_ptr->m_list[g_ptr->m_idx];
-    r_ptr = &monraces_info[m_ptr->r_idx];
+    r_ptr = &m_ptr->get_monrace();
 
     (void)set_monster_csleep(player_ptr, g_ptr->m_idx, 0);
 
@@ -133,7 +135,7 @@ bool teleport_away(PlayerType *player_ptr, MONSTER_IDX m_idx, POSITION dis, tele
     }
 
     if ((mode & TELEPORT_DEC_VALOUR) && (((player_ptr->chp * 10) / player_ptr->mhp) > 5) && (4 + randint1(5) < ((player_ptr->chp * 10) / player_ptr->mhp))) {
-        chg_virtue(player_ptr, V_VALOUR, -1);
+        chg_virtue(player_ptr, Virtue::VALOUR, -1);
     }
 
     POSITION oy = m_ptr->fy;
@@ -164,7 +166,7 @@ bool teleport_away(PlayerType *player_ptr, MONSTER_IDX m_idx, POSITION dis, tele
             if (!cave_monster_teleportable_bold(player_ptr, m_idx, ny, nx, mode)) {
                 continue;
             }
-            if (!(inside_quest(player_ptr->current_floor_ptr->quest_number) || player_ptr->current_floor_ptr->inside_arena)) {
+            if (!(player_ptr->current_floor_ptr->is_in_quest() || player_ptr->current_floor_ptr->inside_arena)) {
                 if (player_ptr->current_floor_ptr->grid_array[ny][nx].is_icky()) {
                     continue;
                 }
@@ -194,8 +196,8 @@ bool teleport_away(PlayerType *player_ptr, MONSTER_IDX m_idx, POSITION dis, tele
     lite_spot(player_ptr, oy, ox);
     lite_spot(player_ptr, ny, nx);
 
-    if (monraces_info[m_ptr->r_idx].flags7 & (RF7_LITE_MASK | RF7_DARK_MASK)) {
-        player_ptr->update |= (PU_MON_LITE);
+    if (m_ptr->get_monrace().brightness_flags.has_any_of(ld_mask)) {
+        RedrawingFlagsUpdater::get_instance().set_flag(StatusRecalculatingFlag::MONSTER_LITE);
     }
 
     return true;
@@ -275,8 +277,8 @@ void teleport_monster_to(PlayerType *player_ptr, MONSTER_IDX m_idx, POSITION ty,
     lite_spot(player_ptr, oy, ox);
     lite_spot(player_ptr, ny, nx);
 
-    if (monraces_info[m_ptr->r_idx].flags7 & (RF7_LITE_MASK | RF7_DARK_MASK)) {
-        player_ptr->update |= (PU_MON_LITE);
+    if (m_ptr->get_monrace().brightness_flags.has_any_of(ld_mask)) {
+        RedrawingFlagsUpdater::get_instance().set_flag(StatusRecalculatingFlag::MONSTER_LITE);
     }
 }
 
@@ -421,7 +423,7 @@ void teleport_player(PlayerType *player_ptr, POSITION dis, BIT_FLAGS mode)
             MONSTER_IDX tmp_m_idx = player_ptr->current_floor_ptr->grid_array[oy + yy][ox + xx].m_idx;
             if (tmp_m_idx && (player_ptr->riding != tmp_m_idx)) {
                 auto *m_ptr = &player_ptr->current_floor_ptr->m_list[tmp_m_idx];
-                auto *r_ptr = &monraces_info[m_ptr->r_idx];
+                auto *r_ptr = &m_ptr->get_monrace();
 
                 bool can_follow = r_ptr->ability_flags.has(MonsterAbilityType::TPORT);
                 can_follow &= r_ptr->resistance_flags.has_not(MonsterResistanceType::RESIST_TELEPORT);
@@ -443,7 +445,7 @@ void teleport_player(PlayerType *player_ptr, POSITION dis, BIT_FLAGS mode)
  */
 void teleport_player_away(MONSTER_IDX m_idx, PlayerType *player_ptr, POSITION dis, bool is_quantum_effect)
 {
-    if (player_ptr->phase_out) {
+    if (AngbandSystem::get_instance().is_phase_out()) {
         return;
     }
 
@@ -466,7 +468,7 @@ void teleport_player_away(MONSTER_IDX m_idx, PlayerType *player_ptr, POSITION di
             }
 
             auto *m_ptr = &player_ptr->current_floor_ptr->m_list[tmp_m_idx];
-            auto *r_ptr = &monraces_info[m_ptr->r_idx];
+            auto *r_ptr = &m_ptr->get_monrace();
 
             bool can_follow = r_ptr->ability_flags.has(MonsterAbilityType::TPORT);
             can_follow &= r_ptr->resistance_flags.has_not(MonsterResistanceType::RESIST_TELEPORT);
@@ -544,7 +546,7 @@ void teleport_away_followable(PlayerType *player_ptr, MONSTER_IDX m_idx)
     bool is_followable = old_ml;
     is_followable &= old_cdis <= MAX_PLAYER_SIGHT;
     is_followable &= w_ptr->timewalk_m_idx == 0;
-    is_followable &= !player_ptr->phase_out;
+    is_followable &= !AngbandSystem::get_instance().is_phase_out();
     is_followable &= los(player_ptr, player_ptr->y, player_ptr->x, oldfy, oldfx);
     if (!is_followable) {
         return;
@@ -559,12 +561,9 @@ void teleport_away_followable(PlayerType *player_ptr, MONSTER_IDX m_idx)
 
         for (i = INVEN_MAIN_HAND; i < INVEN_TOTAL; i++) {
             o_ptr = &player_ptr->inventory_list[i];
-            if (o_ptr->bi_id && !o_ptr->is_cursed()) {
-                auto flgs = object_flags(o_ptr);
-                if (flgs.has(TR_TELEPORT)) {
-                    follow = true;
-                    break;
-                }
+            if (o_ptr->is_valid() && !o_ptr->is_cursed() && o_ptr->get_flags().has(TR_TELEPORT)) {
+                follow = true;
+                break;
             }
         }
     }
@@ -572,7 +571,7 @@ void teleport_away_followable(PlayerType *player_ptr, MONSTER_IDX m_idx)
     if (!follow) {
         return;
     }
-    if (!get_check_strict(player_ptr, _("ついていきますか？", "Do you follow it? "), CHECK_OKAY_CANCEL)) {
+    if (!input_check_strict(player_ptr, _("ついていきますか？", "Do you follow it? "), UserCheck::OKAY_CANCEL)) {
         return;
     }
 
@@ -599,8 +598,10 @@ bool exe_dimension_door(PlayerType *player_ptr, POSITION x, POSITION y)
     PLAYER_LEVEL plev = player_ptr->lev;
 
     player_ptr->energy_need += (int16_t)((int32_t)(60 - plev) * ENERGY_NEED() / 100L);
-
-    if (!cave_player_teleportable_bold(player_ptr, y, x, TELEPORT_SPONTANEOUS) || (distance(y, x, player_ptr->y, player_ptr->x) > plev / 2 + 10) || (!randint0(plev / 10 + 10))) {
+    auto is_successful = cave_player_teleportable_bold(player_ptr, y, x, TELEPORT_SPONTANEOUS);
+    is_successful &= distance(y, x, player_ptr->y, player_ptr->x) <= plev / 2 + 10;
+    is_successful &= !one_in_(plev / 10 + 10);
+    if (!is_successful) {
         player_ptr->energy_need += (int16_t)((int32_t)(60 - plev) * ENERGY_NEED() / 100L);
         teleport_player(player_ptr, (plev + 2) * 2, TELEPORT_PASSIVE);
         return false;

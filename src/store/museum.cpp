@@ -1,4 +1,4 @@
-﻿#include "store/museum.h"
+#include "store/museum.h"
 #include "core/asking-player.h"
 #include "flavor/flavor-describer.h"
 #include "store/home.h"
@@ -25,28 +25,23 @@ void museum_remove_object(PlayerType *player_ptr)
         i = store_bottom;
     }
 
-    char out_val[160];
-    sprintf(out_val, _("どのアイテムの展示をやめさせますか？", "Which item do you want to order to remove? "));
-
-    COMMAND_CODE item;
-    if (!get_stock(&item, out_val, 0, i - 1, StoreSaleType::MUSEUM)) {
+    constexpr auto mes = _("どのアイテムの展示をやめさせますか？", "Which item do you want to order to remove? ");
+    auto item_num_opt = input_stock(mes, 0, i - 1, StoreSaleType::MUSEUM);
+    if (!item_num_opt) {
         return;
     }
 
-    item = item + store_top;
-    ItemEntity *o_ptr;
-    o_ptr = &st_ptr->stock[item];
-
-    GAME_TEXT o_name[MAX_NLEN];
-    describe_flavor(player_ptr, o_name, o_ptr, 0);
+    const short item_num = *item_num_opt + store_top;
+    auto *o_ptr = &st_ptr->stock[item_num];
+    const auto item_name = describe_flavor(player_ptr, o_ptr, 0);
     msg_print(_("展示をやめさせたアイテムは二度と見ることはできません！", "Once removed from the Museum, an item will be gone forever!"));
-    if (!get_check(format(_("本当に%sの展示をやめさせますか？", "Really order to remove %s from the Museum? "), o_name))) {
+    if (!input_check(format(_("本当に%sの展示をやめさせますか？", "Really order to remove %s from the Museum? "), item_name.data()))) {
         return;
     }
 
-    msg_format(_("%sの展示をやめさせた。", "You ordered to remove %s."), o_name);
-    store_item_increase(item, -o_ptr->number);
-    store_item_optimize(item);
+    msg_format(_("%sの展示をやめさせた。", "You ordered to remove %s."), item_name.data());
+    store_item_increase(item_num, -o_ptr->number);
+    store_item_optimize(item_num);
     (void)combine_and_reorder_home(player_ptr, StoreSaleType::MUSEUM);
     if (st_ptr->stock_num == 0) {
         store_top = 0;

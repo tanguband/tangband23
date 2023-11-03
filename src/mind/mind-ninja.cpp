@@ -1,9 +1,8 @@
-﻿#include "mind/mind-ninja.h"
+#include "mind/mind-ninja.h"
 #include "cmd-action/cmd-attack.h"
 #include "cmd-item/cmd-throw.h"
 #include "combat/combat-options-type.h"
 #include "core/disturbance.h"
-#include "core/player-redraw-types.h"
 #include "effect/attribute-types.h"
 #include "effect/effect-characteristics.h"
 #include "effect/effect-processor.h"
@@ -26,7 +25,7 @@
 #include "monster/monster-update.h"
 #include "object-enchant/trc-types.h"
 #include "object/object-kind-hook.h"
-#include "player-attack/player-attack-util.h"
+#include "player-attack/player-attack.h"
 #include "player-base/player-class.h"
 #include "player-info/equipment-info.h"
 #include "player-info/ninja-data-type.h"
@@ -54,6 +53,7 @@
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "system/terrain-type-definition.h"
 #include "target/projection-path-calculator.h"
 #include "target/target-checker.h"
@@ -99,10 +99,11 @@ bool kawarimi(PlayerType *player_ptr, bool success)
         return false;
     }
 
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
     if (!success && one_in_(3)) {
         msg_print(_("変わり身失敗！逃げられなかった。", "Kawarimi failed! You couldn't run away."));
         ninja_data->kawarimi = false;
-        player_ptr->redraw |= (PR_STATUS);
+        rfu.set_flag(MainWindowRedrawingFlag::TIMED_EFFECT);
         return false;
     }
 
@@ -124,7 +125,7 @@ bool kawarimi(PlayerType *player_ptr, bool success)
     }
 
     ninja_data->kawarimi = false;
-    player_ptr->redraw |= (PR_STATUS);
+    rfu.set_flag(MainWindowRedrawingFlag::TIMED_EFFECT);
     return true;
 }
 
@@ -202,9 +203,8 @@ bool rush_attack(PlayerType *player_ptr, bool *mdeath)
             msg_format("There is %s in the way!", m_ptr->ml ? (tm_idx ? "another monster" : "a monster") : "someone");
 #endif
         } else if (!player_bold(player_ptr, ty, tx)) {
-            GAME_TEXT m_name[MAX_NLEN];
-            monster_desc(player_ptr, m_name, m_ptr, 0);
-            msg_format(_("素早く%sの懐に入り込んだ！", "You quickly jump in and attack %s!"), m_name);
+            const auto m_name = monster_desc(player_ptr, m_ptr, 0);
+            msg_format(_("素早く%sの懐に入り込んだ！", "You quickly jump in and attack %s!"), m_name.data());
         }
 
         if (!player_bold(player_ptr, ty, tx)) {
@@ -233,7 +233,7 @@ bool rush_attack(PlayerType *player_ptr, bool *mdeath)
  */
 void process_surprise_attack(PlayerType *player_ptr, player_attack_type *pa_ptr)
 {
-    auto *r_ptr = &monraces_info[pa_ptr->m_ptr->r_idx];
+    auto *r_ptr = &pa_ptr->m_ptr->get_monrace();
     if (!has_melee_weapon(player_ptr, enum2i(INVEN_MAIN_HAND) + pa_ptr->hand) || player_ptr->is_icky_wield[pa_ptr->hand]) {
         return;
     }
@@ -361,11 +361,12 @@ bool set_superstealth(PlayerType *player_ptr, bool set)
     if (!notice) {
         return false;
     }
-    player_ptr->redraw |= (PR_STATUS);
 
+    RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::TIMED_EFFECT);
     if (disturb_state) {
         disturb(player_ptr, false, false);
     }
+
     return true;
 }
 
@@ -410,7 +411,7 @@ bool cast_ninja_spell(PlayerType *player_ptr, MindNinjaType spell)
         if (ninja_data && !ninja_data->kawarimi) {
             msg_print(_("敵の攻撃に対して敏感になった。", "You are now prepared to evade any attacks."));
             ninja_data->kawarimi = true;
-            player_ptr->redraw |= (PR_STATUS);
+            RedrawingFlagsUpdater::get_instance().set_flag(MainWindowRedrawingFlag::TIMED_EFFECT);
         }
 
         break;

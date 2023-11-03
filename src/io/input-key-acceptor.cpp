@@ -1,4 +1,4 @@
-﻿#include "io/input-key-acceptor.h"
+#include "io/input-key-acceptor.h"
 #include "cmd-io/macro-util.h"
 #include "core/stuff-handler.h"
 #include "core/window-redrawer.h"
@@ -6,6 +6,7 @@
 #include "game-option/map-screen-options.h"
 #include "io/signal-handlers.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "term/gameterm.h"
 #include "util/string-processor.h"
 #include "world/world.h"
@@ -47,9 +48,13 @@ static bool parse_under = false;
  * @details
  * カーソル位置がずれるので戻す。
  */
-static void all_term_fresh(int x, int y)
+static void all_term_fresh()
 {
-    p_ptr->window_flags |= PW_ALL;
+    TERM_LEN x, y;
+    term_activate(angband_terms[0]);
+    term_locate(&x, &y);
+
+    RedrawingFlagsUpdater::get_instance().fill_up_sub_flags();
     handle_stuff(p_ptr);
 
     term_activate(angband_terms[0]);
@@ -169,7 +174,7 @@ static char inkey_aux(void)
         return ch;
     }
 
-    concptr pat = macro__pat[k].data();
+    concptr pat = macro_patterns[k].data();
     n = strlen(pat);
     while (p > n) {
         if (term_key_push(buf[--p])) {
@@ -182,7 +187,7 @@ static char inkey_aux(void)
         return 0;
     }
 
-    concptr act = macro__act[k].data();
+    concptr act = macro_actions[k].data();
 
     n = strlen(act);
     while (n > 0) {
@@ -227,8 +232,6 @@ char inkey(bool do_all_term_refresh)
     }
 
     term_activate(angband_terms[0]);
-    auto y = angband_terms[0]->scr->cy;
-    auto x = angband_terms[0]->scr->cx;
     char kk;
     while (!ch) {
         if (!inkey_base && inkey_scan && (0 != term_inkey(&kk, false, false))) {
@@ -238,7 +241,7 @@ char inkey(bool do_all_term_refresh)
         if (!done && (0 != term_inkey(&kk, false, false))) {
             start_term_fresh();
             if (do_all_term_refresh) {
-                all_term_fresh(x, y);
+                all_term_fresh();
             } else {
                 term_fresh();
             }

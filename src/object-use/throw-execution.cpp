@@ -1,4 +1,4 @@
-﻿/*!
+/*!
  * @file throw-util.cpp
  * @brief 投擲処理関連クラス
  * @date 2021/08/20
@@ -11,7 +11,6 @@
 #include "combat/attack-power-table.h"
 #include "combat/shoot.h"
 #include "combat/slaying.h"
-#include "core/player-update-types.h"
 #include "core/stuff-handler.h"
 #include "core/window-redrawer.h"
 #include "effect/attribute-types.h"
@@ -36,6 +35,7 @@
 #include "monster/monster-damage.h"
 #include "monster/monster-describer.h"
 #include "monster/monster-info.h"
+#include "monster/monster-pain-describer.h"
 #include "monster/monster-status-setter.h"
 #include "monster/monster-status.h"
 #include "object-enchant/tr-types.h"
@@ -44,7 +44,6 @@
 #include "object/item-tester-hooker.h"
 #include "object/item-use-flags.h"
 #include "object/object-broken.h"
-#include "object/object-flags.h"
 #include "object/object-info.h"
 #include "object/object-stack.h"
 #include "player-base/player-class.h"
@@ -59,6 +58,7 @@
 #include "system/item-entity.h"
 #include "system/monster-entity.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "target/target-checker.h"
 #include "target/target-getter.h"
 #include "term/screen-processor.h"
@@ -66,6 +66,7 @@
 #include "timed-effect/player-hallucination.h"
 #include "timed-effect/timed-effects.h"
 #include "util/bit-flags-calculator.h"
+#include "util/string-processor.h"
 #include "view/display-messages.h"
 #include "view/object-describer.h"
 #include "wizard/wizard-messages.h"
@@ -86,7 +87,7 @@ bool ObjectThrowEntity::check_can_throw()
         return false;
     }
 
-    if (this->o_ptr->is_cursed() && (this->item >= INVEN_MAIN_HAND)) {
+    if (this->o_ptr->is_cursed() && (this->i_idx >= INVEN_MAIN_HAND)) {
         msg_print(_("ふーむ、どうやら呪われているようだ。", "Hmmm, it seems to be cursed."));
         return false;
     }
@@ -104,11 +105,11 @@ bool ObjectThrowEntity::check_can_throw()
 void ObjectThrowEntity::calc_throw_range()
 {
     this->q_ptr->copy_from(this->o_ptr);
-    this->obj_flags = object_flags(this->q_ptr);
+    this->obj_flags = this->q_ptr->get_flags();
     torch_flags(this->q_ptr, this->obj_flags);
     distribute_charges(this->o_ptr, this->q_ptr, 1);
     this->q_ptr->number = 1;
-    describe_flavor(this->player_ptr, this->o_name, this->q_ptr, OD_OMIT_PREFIX);
+    this->o_name = describe_flavor(this->player_ptr, this->q_ptr, OD_OMIT_PREFIX);
     if (this->player_ptr->mighty_throw) {
         this->mult += 3;
     }
@@ -156,18 +157,18 @@ void ObjectThrowEntity::reflect_inventory_by_throw()
         this->return_when_thrown = true;
     }
 
-    if (this->item < 0) {
-        floor_item_increase(this->player_ptr, 0 - this->item, -1);
-        floor_item_optimize(this->player_ptr, 0 - this->item);
+    if (this->i_idx < 0) {
+        floor_item_increase(this->player_ptr, 0 - this->i_idx, -1);
+        floor_item_optimize(this->player_ptr, 0 - this->i_idx);
         return;
     }
 
-    inven_item_increase(this->player_ptr, this->item, -1);
+    inven_item_increase(this->player_ptr, this->i_idx, -1);
     if (!this->return_when_thrown) {
-        inven_item_describe(this->player_ptr, this->item);
+        inven_item_describe(this->player_ptr, this->i_idx);
     }
 
-    inven_item_optimize(this->player_ptr, this->item);
+    inven_item_optimize(this->player_ptr, this->i_idx);
 }
 
 void ObjectThrowEntity::set_class_specific_throw_params()
@@ -217,7 +218,7 @@ void ObjectThrowEntity::exe_throw()
         auto *floor_ptr = this->player_ptr->current_floor_ptr;
         this->g_ptr = &floor_ptr->grid_array[this->y][this->x];
         this->m_ptr = &floor_ptr->m_list[this->g_ptr->m_idx];
-        monster_name(this->player_ptr, this->g_ptr->m_idx, this->m_name);
+        this->m_name = monster_name(this->player_ptr, this->g_ptr->m_idx);
         this->visible = this->m_ptr->ml;
         this->hit_body = true;
         this->attack_racial_power();
@@ -254,7 +255,7 @@ void ObjectThrowEntity::display_potion_throw()
         return;
     }
 
-    msg_format(_("%sは砕け散った！", "The %s shatters!"), this->o_name);
+    msg_format(_("%sは砕け散った！", "The %s shatters!"), this->o_name.data());
     if (!potion_smash_effect(this->player_ptr, 0, this->y, this->x, this->q_ptr->bi_id)) {
         this->do_drop = false;
         return;
@@ -267,10 +268,10 @@ void ObjectThrowEntity::display_potion_throw()
         return;
     }
 
-    GAME_TEXT angry_m_name[MAX_NLEN];
-    monster_desc(this->player_ptr, angry_m_name, angry_m_ptr, 0);
-    msg_format(_("%sは怒った！", "%^s gets angry!"), angry_m_name);
-    set_hostile(this->player_ptr, &floor_ptr->m_list[floor_ptr->grid_array[this->y][this->x].m_idx]);
+    const auto angry_m_name = monster_desc(this->player_ptr, angry_m_ptr, 0);
+    msg_format(_("%sは怒った！", "%s^ gets angry!"), angry_m_name.data());
+    const auto &grid = floor_ptr->get_grid({ this->y, this->x });
+    floor_ptr->m_list[grid.m_idx].set_hostile();
     this->do_drop = false;
 }
 
@@ -291,31 +292,37 @@ void ObjectThrowEntity::check_boomerang_throw()
         this->back_chance += 100;
     }
 
-    describe_flavor(this->player_ptr, this->o2_name, this->q_ptr, OD_OMIT_PREFIX | OD_NAME_ONLY);
+    this->o2_name = describe_flavor(this->player_ptr, this->q_ptr, OD_OMIT_PREFIX | OD_NAME_ONLY);
     this->process_boomerang_throw();
 }
 
 void ObjectThrowEntity::process_boomerang_back()
 {
     if (this->come_back) {
-        if ((this->item != INVEN_MAIN_HAND) && (this->item != INVEN_SUB_HAND)) {
-            store_item_to_inventory(player_ptr, this->q_ptr);
+        if ((this->i_idx != INVEN_MAIN_HAND) && (this->i_idx != INVEN_SUB_HAND)) {
+            store_item_to_inventory(this->player_ptr, this->q_ptr);
             this->do_drop = false;
             return;
         }
 
-        this->o_ptr = &player_ptr->inventory_list[this->item];
+        this->o_ptr = &player_ptr->inventory_list[this->i_idx];
         this->o_ptr->copy_from(this->q_ptr);
-        player_ptr->equip_cnt++;
-        player_ptr->update |= PU_BONUS | PU_TORCH | PU_MANA;
-        player_ptr->window_flags |= PW_EQUIP;
+        this->player_ptr->equip_cnt++;
+        auto &rfu = RedrawingFlagsUpdater::get_instance();
+        static constexpr auto flags = {
+            StatusRecalculatingFlag::BONUS,
+            StatusRecalculatingFlag::TORCH,
+            StatusRecalculatingFlag::MP,
+        };
+        rfu.set_flags(flags);
+        rfu.set_flag(SubWindowRedrawingFlag::EQUIPMENT);
         this->do_drop = false;
         return;
     }
 
     if (this->equiped_item) {
-        verify_equip_slot(player_ptr, this->item);
-        calc_android_exp(player_ptr);
+        verify_equip_slot(this->player_ptr, this->i_idx);
+        calc_android_exp(this->player_ptr);
     }
 }
 
@@ -334,8 +341,8 @@ void ObjectThrowEntity::drop_thrown_item()
 bool ObjectThrowEntity::check_what_throw()
 {
     if (this->shuriken >= 0) {
-        this->item = this->shuriken;
-        this->o_ptr = &this->player_ptr->inventory_list[this->item];
+        this->i_idx = this->shuriken;
+        this->o_ptr = &this->player_ptr->inventory_list[this->i_idx];
         return true;
     }
 
@@ -343,10 +350,9 @@ bool ObjectThrowEntity::check_what_throw()
         return this->check_throw_boomerang();
     }
 
-    concptr q, s;
-    q = _("どのアイテムを投げますか? ", "Throw which item? ");
-    s = _("投げるアイテムがない。", "You have nothing to throw.");
-    this->o_ptr = choose_object(this->player_ptr, &this->item, q, s, USE_INVEN | USE_FLOOR | USE_EQUIP);
+    constexpr auto q = _("どのアイテムを投げますか? ", "Throw which item? ");
+    constexpr auto s = _("投げるアイテムがない。", "You have nothing to throw.");
+    this->o_ptr = choose_object(this->player_ptr, &this->i_idx, q, s, USE_INVEN | USE_FLOOR | USE_EQUIP);
     if (!this->o_ptr) {
         flush();
         return false;
@@ -361,7 +367,7 @@ bool ObjectThrowEntity::check_throw_boomerang()
         concptr q, s;
         q = _("どの武器を投げますか? ", "Throw which item? ");
         s = _("投げる武器がない。", "You have nothing to throw.");
-        this->o_ptr = choose_object(this->player_ptr, &this->item, q, s, USE_EQUIP, FuncItemTester(&ItemEntity::is_throwable));
+        this->o_ptr = choose_object(this->player_ptr, &this->i_idx, q, s, USE_EQUIP, FuncItemTester(&ItemEntity::is_throwable));
         if (!this->o_ptr) {
             flush();
             return false;
@@ -371,13 +377,13 @@ bool ObjectThrowEntity::check_throw_boomerang()
     }
 
     if (has_melee_weapon(this->player_ptr, INVEN_SUB_HAND)) {
-        this->item = INVEN_SUB_HAND;
-        this->o_ptr = &this->player_ptr->inventory_list[this->item];
+        this->i_idx = INVEN_SUB_HAND;
+        this->o_ptr = &this->player_ptr->inventory_list[this->i_idx];
         return true;
     }
 
-    this->item = INVEN_MAIN_HAND;
-    this->o_ptr = &this->player_ptr->inventory_list[this->item];
+    this->i_idx = INVEN_MAIN_HAND;
+    this->o_ptr = &this->player_ptr->inventory_list[this->i_idx];
     return true;
 }
 
@@ -446,29 +452,33 @@ void ObjectThrowEntity::attack_racial_power()
     }
 
     MonsterDamageProcessor mdp(this->player_ptr, this->g_ptr->m_idx, this->tdam, &fear, attribute_flags);
-    if (mdp.mon_take_hit(extract_note_dies(this->m_ptr->get_real_r_idx()))) {
+    if (mdp.mon_take_hit(this->m_ptr->get_died_message())) {
         return;
     }
 
-    message_pain(this->player_ptr, this->g_ptr->m_idx, this->tdam);
+    if (const auto pain_message = MonsterPainDescriber(player_ptr, this->g_ptr->m_idx).describe(this->tdam);
+        !pain_message.empty()) {
+        msg_print(pain_message);
+    }
+
     if ((this->tdam > 0) && !this->q_ptr->is_potion()) {
         anger_monster(this->player_ptr, this->m_ptr);
     }
 
     if (fear && this->m_ptr->ml) {
         sound(SOUND_FLEE);
-        msg_format(_("%^sは恐怖して逃げ出した！", "%^s flees in terror!"), this->m_name);
+        msg_format(_("%s^は恐怖して逃げ出した！", "%s^ flees in terror!"), this->m_name.data());
     }
 }
 
 void ObjectThrowEntity::display_attack_racial_power()
 {
     if (!this->visible) {
-        msg_format(_("%sが敵を捕捉した。", "The %s finds a mark."), this->o_name);
+        msg_format(_("%sが敵を捕捉した。", "The %s finds a mark."), this->o_name.data());
         return;
     }
 
-    msg_format(_("%sが%sに命中した。", "The %s hits %s."), this->o_name, this->m_name);
+    msg_format(_("%sが%sに命中した。", "The %s hits %s."), this->o_name.data(), this->m_name.data());
     if (!this->m_ptr->ml) {
         return;
     }
@@ -490,7 +500,7 @@ void ObjectThrowEntity::calc_racial_power_damage()
     this->tdam = critical_shot(this->player_ptr, this->q_ptr->weight, this->q_ptr->to_h, 0, this->tdam);
     this->tdam += (this->q_ptr->to_d > 0 ? 1 : -1) * this->q_ptr->to_d;
     if (this->boomerang) {
-        this->tdam *= (this->mult + this->player_ptr->num_blow[this->item - INVEN_MAIN_HAND]);
+        this->tdam *= (this->mult + this->player_ptr->num_blow[this->i_idx - INVEN_MAIN_HAND]);
         this->tdam += this->player_ptr->to_d_m;
     } else if (this->obj_flags.has(TR_THROW)) {
         this->tdam *= (3 + this->mult);
@@ -513,7 +523,7 @@ void ObjectThrowEntity::calc_racial_power_damage()
 void ObjectThrowEntity::process_boomerang_throw()
 {
     if ((this->back_chance <= 30) || (one_in_(100) && !this->super_boomerang)) {
-        msg_format(_("%sが返ってこなかった！", "%s doesn't come back!"), this->o2_name);
+        msg_format(_("%sが返ってこなかった！", "%s doesn't come back!"), this->o2_name.data());
         return;
     }
 
@@ -543,14 +553,14 @@ void ObjectThrowEntity::process_boomerang_throw()
 void ObjectThrowEntity::display_boomerang_throw()
 {
     const auto is_blind = this->player_ptr->effects()->blindness()->is_blind();
-    if ((this->back_chance > 37) && !is_blind && (this->item >= 0)) {
-        msg_format(_("%sが手元に返ってきた。", "%s comes back to you."), this->o2_name);
+    if ((this->back_chance > 37) && !is_blind && (this->i_idx >= 0)) {
+        msg_format(_("%sが手元に返ってきた。", "%s comes back to you."), this->o2_name.data());
         this->come_back = true;
         return;
     }
 
-    auto back_message = this->item >= 0 ? _("%sを受け損ねた！", "%s comes back, but you can't catch!") : _("%sが返ってきた。", "%s comes back.");
-    msg_format(back_message, this->o2_name);
+    auto back_message = this->i_idx >= 0 ? _("%sを受け損ねた！", "%s comes back, but you can't catch!") : _("%sが返ってきた。", "%s comes back.");
+    msg_format(back_message, this->o2_name.data());
     this->y = this->player_ptr->y;
     this->x = this->player_ptr->x;
 }

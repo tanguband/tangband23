@@ -1,7 +1,6 @@
-﻿#include "spell-kind/spells-genocide.h"
+#include "spell-kind/spells-genocide.h"
 #include "avatar/avatar.h"
 #include "core/asking-player.h"
-#include "core/player-redraw-types.h"
 #include "core/stuff-handler.h"
 #include "core/window-redrawer.h"
 #include "dungeon/quest.h"
@@ -20,14 +19,15 @@
 #include "monster/monster-describer.h"
 #include "monster/monster-description-types.h"
 #include "monster/monster-flag-types.h"
-#include "monster/monster-info.h"
 #include "monster/monster-status-setter.h"
 #include "monster/monster-status.h"
 #include "player/player-damage.h"
+#include "system/angband-system.h"
 #include "system/floor-type-definition.h"
 #include "system/monster-entity.h"
 #include "system/monster-race-info.h"
 #include "system/player-type-definition.h"
+#include "system/redrawing-flags-updater.h"
 #include "util/bit-flags-calculator.h"
 #include "view/display-messages.h"
 
@@ -42,75 +42,73 @@
  */
 bool genocide_aux(PlayerType *player_ptr, MONSTER_IDX m_idx, int power, bool player_cast, int dam_side, concptr spell_name)
 {
-    auto *m_ptr = &player_ptr->current_floor_ptr->m_list[m_idx];
-    auto *r_ptr = &monraces_info[m_ptr->r_idx];
-    if (m_ptr->is_pet() && !player_cast) {
+    auto &floor = *player_ptr->current_floor_ptr;
+    auto &monster = floor.m_list[m_idx];
+    const auto &monrace = monster.get_monrace();
+    if (monster.is_pet() && !player_cast) {
         return false;
     }
 
-    bool resist = false;
-    if (r_ptr->kind_flags.has(MonsterKindType::UNIQUE) || any_bits(r_ptr->flags1, RF1_QUESTOR)) {
+    auto resist = false;
+    if (monrace.kind_flags.has(MonsterKindType::UNIQUE) || any_bits(monrace.flags1, RF1_QUESTOR)) {
         resist = true;
-    } else if (r_ptr->flags7 & RF7_UNIQUE2) {
+    } else if (monrace.flags7 & RF7_UNIQUE2) {
         resist = true;
     } else if (m_idx == player_ptr->riding) {
         resist = true;
-    } else if ((inside_quest(player_ptr->current_floor_ptr->quest_number) && !inside_quest(random_quest_number(player_ptr, player_ptr->current_floor_ptr->dun_level))) || player_ptr->current_floor_ptr->inside_arena || player_ptr->phase_out) {
+    } else if (floor.is_special()) {
         resist = true;
-    } else if (player_cast && (r_ptr->level > randint0(power))) {
+    } else if (player_cast && (monrace.level > randint0(power))) {
         resist = true;
-    } else if (player_cast && m_ptr->mflag2.has(MonsterConstantFlagType::NOGENO)) {
+    } else if (player_cast && monster.mflag2.has(MonsterConstantFlagType::NOGENO)) {
         resist = true;
     } else {
-        if (record_named_pet && m_ptr->is_pet() && m_ptr->nickname) {
-            GAME_TEXT m_name[MAX_NLEN];
-            monster_desc(player_ptr, m_name, m_ptr, MD_INDEF_VISIBLE);
-            exe_write_diary(player_ptr, DIARY_NAMED_PET, RECORD_NAMED_PET_GENOCIDE, m_name);
+        if (record_named_pet && monster.is_named_pet()) {
+            const auto m_name = monster_desc(player_ptr, &monster, MD_INDEF_VISIBLE);
+            exe_write_diary(player_ptr, DiaryKind::NAMED_PET, RECORD_NAMED_PET_GENOCIDE, m_name);
         }
 
         delete_monster_idx(player_ptr, m_idx);
     }
 
     if (resist && player_cast) {
-        bool see_m = is_seen(player_ptr, m_ptr);
-        GAME_TEXT m_name[MAX_NLEN];
-        monster_desc(player_ptr, m_name, m_ptr, 0);
+        const auto see_m = is_seen(player_ptr, &monster);
+        const auto m_name = monster_desc(player_ptr, &monster, 0);
         if (see_m) {
-            msg_format(_("%^sには効果がなかった。", "%^s is unaffected."), m_name);
+            msg_format(_("%s^には効果がなかった。", "%s^ is unaffected."), m_name.data());
         }
 
-        if (m_ptr->is_asleep()) {
+        if (monster.is_asleep()) {
             (void)set_monster_csleep(player_ptr, m_idx, 0);
-            if (m_ptr->ml) {
-                msg_format(_("%^sが目を覚ました。", "%^s wakes up."), m_name);
+            if (monster.ml) {
+                msg_format(_("%s^が目を覚ました。", "%s^ wakes up."), m_name.data());
             }
         }
 
-        if (m_ptr->is_friendly() && !m_ptr->is_pet()) {
+        if (monster.is_friendly() && !monster.is_pet()) {
             if (see_m) {
-                msg_format(_("%sは怒った！", "%^s gets angry!"), m_name);
+                msg_format(_("%sは怒った！", "%s^ gets angry!"), m_name.data());
             }
 
-            set_hostile(player_ptr, m_ptr);
+            monster.set_hostile();
         }
 
         if (one_in_(13)) {
-            m_ptr->mflag2.set(MonsterConstantFlagType::NOGENO);
+            monster.mflag2.set(MonsterConstantFlagType::NOGENO);
         }
     }
 
     if (player_cast) {
-        take_hit(player_ptr, DAMAGE_GENO, randint1(dam_side), format(_("%^sの呪文を唱えた疲労", "the strain of casting %^s"), spell_name));
+        take_hit(player_ptr, DAMAGE_GENO, randint1(dam_side), format(_("%s^の呪文を唱えた疲労", "the strain of casting %s^"), spell_name));
     }
 
     move_cursor_relative(player_ptr->y, player_ptr->x);
-    player_ptr->redraw |= (PR_HP);
-    player_ptr->window_flags |= (PW_PLAYER);
+    auto &rfu = RedrawingFlagsUpdater::get_instance();
+    rfu.set_flag(MainWindowRedrawingFlag::HP);
+    rfu.set_flag(SubWindowRedrawingFlag::PLAYER);
     handle_stuff(player_ptr);
     term_fresh();
-
     term_xtra(TERM_XTRA_DELAY, delay_factor);
-
     return !resist;
 }
 
@@ -122,39 +120,43 @@ bool genocide_aux(PlayerType *player_ptr, MONSTER_IDX m_idx, int power, bool pla
  */
 bool symbol_genocide(PlayerType *player_ptr, int power, bool player_cast)
 {
-    auto *floor_ptr = player_ptr->current_floor_ptr;
-    bool is_special_floor = inside_quest(floor_ptr->quest_number) && !inside_quest(random_quest_number(player_ptr, floor_ptr->dun_level));
-    is_special_floor |= player_ptr->current_floor_ptr->inside_arena;
-    is_special_floor |= player_ptr->phase_out;
+    auto &floor = *player_ptr->current_floor_ptr;
+    bool is_special_floor = floor.is_in_quest() && !inside_quest(floor.get_random_quest_id());
+    is_special_floor |= floor.inside_arena;
+    is_special_floor |= AngbandSystem::get_instance().is_phase_out();
     if (is_special_floor) {
         msg_print(_("何も起きないようだ……", "Nothing seems to happen..."));
         return false;
     }
 
-    char typ;
-    while (!get_com(_("どの種類(文字)のモンスターを抹殺しますか: ", "Choose a monster race (by symbol) to genocide: "), &typ, false)) {
-        ;
-    }
-    bool result = false;
-    for (MONSTER_IDX i = 1; i < player_ptr->current_floor_ptr->m_max; i++) {
-        auto *m_ptr = &player_ptr->current_floor_ptr->m_list[i];
-        auto *r_ptr = &monraces_info[m_ptr->r_idx];
-        if (!m_ptr->is_valid()) {
-            continue;
+    constexpr auto prompt = _("どの種類(文字)のモンスターを抹殺しますか: ", "Choose a monster race (by symbol) to genocide: ");
+    char symbol;
+    while (true) {
+        const auto command = input_command(prompt);
+        if (command.has_value()) {
+            symbol = command.value();
+            break;
         }
-        if (r_ptr->d_char != typ) {
+    }
+
+    auto result = false;
+    for (short i = 1; i < floor.m_max; i++) {
+        auto *m_ptr = &floor.m_list[i];
+        auto *r_ptr = &m_ptr->get_monrace();
+        if (!m_ptr->is_valid() || (r_ptr->d_char != symbol)) {
             continue;
         }
 
         result |= genocide_aux(player_ptr, i, power, player_cast, 4, _("抹殺", "Genocide"));
     }
 
-    if (result) {
-        chg_virtue(player_ptr, V_VITALITY, -2);
-        chg_virtue(player_ptr, V_CHANCE, -1);
+    if (!result) {
+        return false;
     }
 
-    return result;
+    chg_virtue(player_ptr, Virtue::VITALITY, -2);
+    chg_virtue(player_ptr, Virtue::CHANCE, -1);
+    return true;
 }
 
 /*!
@@ -165,17 +167,17 @@ bool symbol_genocide(PlayerType *player_ptr, int power, bool player_cast)
  */
 bool mass_genocide(PlayerType *player_ptr, int power, bool player_cast)
 {
-    auto *floor_ptr = player_ptr->current_floor_ptr;
-    bool is_special_floor = inside_quest(floor_ptr->quest_number) && !inside_quest(random_quest_number(player_ptr, floor_ptr->dun_level));
-    is_special_floor |= player_ptr->current_floor_ptr->inside_arena;
-    is_special_floor |= player_ptr->phase_out;
+    auto &floor = *player_ptr->current_floor_ptr;
+    bool is_special_floor = floor.is_in_quest() && !inside_quest(floor.get_random_quest_id());
+    is_special_floor |= floor.inside_arena;
+    is_special_floor |= AngbandSystem::get_instance().is_phase_out();
     if (is_special_floor) {
         return false;
     }
 
     bool result = false;
-    for (MONSTER_IDX i = 1; i < player_ptr->current_floor_ptr->m_max; i++) {
-        auto *m_ptr = &player_ptr->current_floor_ptr->m_list[i];
+    for (MONSTER_IDX i = 1; i < floor.m_max; i++) {
+        auto *m_ptr = &floor.m_list[i];
         if (!m_ptr->is_valid()) {
             continue;
         }
@@ -187,8 +189,8 @@ bool mass_genocide(PlayerType *player_ptr, int power, bool player_cast)
     }
 
     if (result) {
-        chg_virtue(player_ptr, V_VITALITY, -2);
-        chg_virtue(player_ptr, V_CHANCE, -1);
+        chg_virtue(player_ptr, Virtue::VITALITY, -2);
+        chg_virtue(player_ptr, Virtue::CHANCE, -1);
     }
 
     return result;
@@ -202,18 +204,18 @@ bool mass_genocide(PlayerType *player_ptr, int power, bool player_cast)
  */
 bool mass_genocide_undead(PlayerType *player_ptr, int power, bool player_cast)
 {
-    auto *floor_ptr = player_ptr->current_floor_ptr;
-    bool is_special_floor = inside_quest(floor_ptr->quest_number) && !inside_quest(random_quest_number(player_ptr, floor_ptr->dun_level));
-    is_special_floor |= player_ptr->current_floor_ptr->inside_arena;
-    is_special_floor |= player_ptr->phase_out;
+    auto &floor = *player_ptr->current_floor_ptr;
+    bool is_special_floor = floor.is_in_quest() && !inside_quest(floor.get_random_quest_id());
+    is_special_floor |= floor.inside_arena;
+    is_special_floor |= AngbandSystem::get_instance().is_phase_out();
     if (is_special_floor) {
         return false;
     }
 
     bool result = false;
-    for (MONSTER_IDX i = 1; i < player_ptr->current_floor_ptr->m_max; i++) {
-        auto *m_ptr = &player_ptr->current_floor_ptr->m_list[i];
-        auto *r_ptr = &monraces_info[m_ptr->r_idx];
+    for (MONSTER_IDX i = 1; i < floor.m_max; i++) {
+        auto *m_ptr = &floor.m_list[i];
+        auto *r_ptr = &m_ptr->get_monrace();
         if (!m_ptr->is_valid()) {
             continue;
         }
@@ -228,8 +230,8 @@ bool mass_genocide_undead(PlayerType *player_ptr, int power, bool player_cast)
     }
 
     if (result) {
-        chg_virtue(player_ptr, V_UNLIFE, -2);
-        chg_virtue(player_ptr, V_CHANCE, -1);
+        chg_virtue(player_ptr, Virtue::UNLIFE, -2);
+        chg_virtue(player_ptr, Virtue::CHANCE, -1);
     }
 
     return result;
