@@ -25,4 +25,4 @@ jobs:
 
       - name: Run build test
         run: |
-          MSBuild -warnAsError .\Hengband\Hengband.sln /t:Rebuild /p:Configuration=Debug
+          MSBuild -warnAsError .\Tangband\Tangband.sln /t:Rebuild /p:Configuration=Debug
