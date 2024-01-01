@@ -12,6 +12,8 @@ jobs:
   publish-release-page:
     name: Publish Release Page
     runs-on: windows-2022
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: nschloe/action-cached-lfs-checkout@v1
