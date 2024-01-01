@@ -40,9 +40,11 @@ jobs:
 
       - name: Release
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: Tangband-*.zip
           name: ${{ steps.get_version.outputs.version }}
           tag_name: ${{ steps.get_version.outputs.version }}
-          generate_release_notes: true
-          draft: true
+          generate_release_notes: false
+          draft: false
